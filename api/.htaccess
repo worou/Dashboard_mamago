@@ -1,0 +1,15 @@
+# MamaGo API - front controller rewrite
+RewriteEngine On
+RewriteBase /mamago/api/
+
+# Certains Apache retirent l'entete Authorization : on la reinjecte pour PHP.
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1
+
+# Serve real files/directories directly (e.g. nothing here, but safe)
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.php [QSA,L]
+
+# Fallback if mod_rewrite is disabled: PHP still resolves the path from REQUEST_URI
+DirectoryIndex index.php

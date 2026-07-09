@@ -1,0 +1,30 @@
+# Dependances
+frontend/node_modules/
+node_modules/
+vendor/
+
+# Builds
+frontend/dist/
+dist/
+build/
+
+# Environnement / secrets locaux
+.env
+.env.local
+*.local
+
+# Logs & temporaires
+*.log
+npm-debug.log*
+*.tmp
+
+# Outils / IDE
+.claude/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Exports generes par l'API
+api/rapports/
+*.csv.tmp

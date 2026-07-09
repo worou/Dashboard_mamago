@@ -1,0 +1,742 @@
+openapi: 3.0.3
+info:
+  title: MamaGo API - Manager Word par pays
+  version: "1.0"
+  description: >
+    API REST du module d'administration MamaGo : indicateurs de performance
+    par pays (CA, clients, livreurs, paiements), gestion des utilisateurs,
+    des roles/droits et tracabilite.
+
+
+    **Authentification** : `POST /auth/login` renvoie un jeton Bearer.
+    Cliquez sur **Authorize** et collez le jeton.
+    Les lectures sont ouvertes ; les ecritures sensibles (pays, roles,
+    utilisateurs, droits) exigent le jeton.
+
+
+    **CA - source de verite** : somme de `courses.montant` des courses au
+    statut `terminee`. `pays.ca_global` et `stats_ca_ville_service` sont des
+    agregats recalcules a partir de cette meme source.
+
+servers:
+  - url: /mamago/api
+    description: XAMPP local (Apache)
+
+tags:
+  - name: Auth
+  - name: Dashboard
+  - name: Pays
+  - name: Stats
+  - name: Referentiel
+  - name: Clients
+  - name: Livreurs
+  - name: Courses
+  - name: Paiements
+  - name: Administration
+  - name: Tracabilite
+
+paths:
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Connexion (retourne un jeton Bearer)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, mot_de_passe]
+              properties:
+                email: { type: string, example: admin@mamago.com }
+                mot_de_passe: { type: string, example: password }
+      responses:
+        "200":
+          description: Jeton + profil
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Success"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          token: { type: string }
+                          token_type: { type: string, example: Bearer }
+                          utilisateur: { $ref: "#/components/schemas/Utilisateur" }
+        "401": { $ref: "#/components/responses/Error" }
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Profil de l'utilisateur connecte
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200": { description: Profil courant + pays geres }
+        "401": { $ref: "#/components/responses/Error" }
+
+  /dashboard:
+    get:
+      tags: [Dashboard]
+      summary: CA global + liste des pays avec CA et evolution
+      parameters:
+        - { $ref: "#/components/parameters/from" }
+        - { $ref: "#/components/parameters/to" }
+        - { $ref: "#/components/parameters/periode" }
+      responses:
+        "200":
+          description: Totaux + tableau par pays
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Success"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          periode: { $ref: "#/components/schemas/Periode" }
+                          totaux:
+                            type: object
+                            properties:
+                              ca_global: { type: number }
+                              ca_precedent: { type: number }
+                              evolution_pct: { type: number, nullable: true }
+                              nb_pays: { type: integer }
+                              nb_villes: { type: integer }
+                              nb_clients: { type: integer }
+                              nb_livreurs: { type: integer }
+                              nb_courses: { type: integer }
+                          pays:
+                            type: array
+                            items: { $ref: "#/components/schemas/PaysDashboard" }
+
+  /pays:
+    get:
+      tags: [Pays]
+      summary: Liste des pays
+      responses:
+        "200": { description: Liste }
+    post:
+      tags: [Pays]
+      summary: Creer un pays
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PaysInput" }
+      responses:
+        "201": { description: Cree }
+        "401": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /pays/{id}:
+    parameters: [{ $ref: "#/components/parameters/id" }]
+    get:
+      tags: [Pays]
+      summary: Detail d'un pays
+      responses:
+        "200": { description: OK }
+        "404": { $ref: "#/components/responses/Error" }
+    put:
+      tags: [Pays]
+      summary: Modifier un pays
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PaysInput" }
+      responses:
+        "200": { description: Modifie }
+        "401": { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [Pays]
+      summary: Supprimer un pays
+      security: [{ bearerAuth: [] }]
+      responses:
+        "204": { description: Supprime }
+        "401": { $ref: "#/components/responses/Error" }
+  /pays/{id}/stats:
+    parameters:
+      - { $ref: "#/components/parameters/id" }
+      - { $ref: "#/components/parameters/from" }
+      - { $ref: "#/components/parameters/to" }
+      - { $ref: "#/components/parameters/periode" }
+      - name: months
+        in: query
+        schema: { type: integer, default: 6 }
+        description: Nombre de mois pour la serie d'evolution clients
+    get:
+      tags: [Stats]
+      summary: Statistiques completes d'un pays
+      description: CA par ville/service, evolution clients, type de paiement, livreurs.
+      responses:
+        "200":
+          description: Bloc de statistiques
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Success"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/PaysStats" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /stats/paiements:
+    get:
+      tags: [Stats]
+      summary: Repartition du CA par type de paiement
+      parameters:
+        - { $ref: "#/components/parameters/paysIdQuery" }
+        - { $ref: "#/components/parameters/from" }
+        - { $ref: "#/components/parameters/to" }
+      responses:
+        "200": { description: Repartition }
+
+  /villes:
+    get:
+      tags: [Referentiel]
+      summary: Liste des villes
+      parameters: [{ $ref: "#/components/parameters/paysIdQuery" }]
+      responses: { "200": { description: Liste } }
+    post:
+      tags: [Referentiel]
+      summary: Creer une ville
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pays_id, nom_ville]
+              properties:
+                pays_id: { type: integer }
+                nom_ville: { type: string }
+      responses: { "201": { description: Cree } }
+  /villes/{id}:
+    parameters: [{ $ref: "#/components/parameters/id" }]
+    get: { tags: [Referentiel], summary: Detail ville, responses: { "200": { description: OK } } }
+    put:
+      tags: [Referentiel]
+      summary: Modifier une ville
+      security: [{ bearerAuth: [] }]
+      responses: { "200": { description: OK } }
+    delete:
+      tags: [Referentiel]
+      summary: Supprimer une ville
+      security: [{ bearerAuth: [] }]
+      responses: { "204": { description: Supprime } }
+
+  /services:
+    get:
+      tags: [Referentiel]
+      summary: Liste des services
+      parameters:
+        - { name: actif, in: query, schema: { type: integer, enum: [0, 1] } }
+      responses: { "200": { description: Liste } }
+    post:
+      tags: [Referentiel]
+      summary: Creer un service
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nom_service]
+              properties:
+                nom_service: { type: string }
+                description: { type: string }
+                actif: { type: boolean }
+      responses: { "201": { description: Cree } }
+  /services/{id}:
+    parameters: [{ $ref: "#/components/parameters/id" }]
+    get: { tags: [Referentiel], summary: Detail service, responses: { "200": { description: OK } } }
+    put:
+      tags: [Referentiel]
+      summary: Modifier un service
+      security: [{ bearerAuth: [] }]
+      responses: { "200": { description: OK } }
+    delete:
+      tags: [Referentiel]
+      summary: Supprimer un service
+      security: [{ bearerAuth: [] }]
+      responses: { "204": { description: Supprime } }
+
+  /clients:
+    get:
+      tags: [Clients]
+      summary: Liste des clients (paginee)
+      parameters:
+        - { $ref: "#/components/parameters/paysIdQuery" }
+        - { name: ville_id, in: query, schema: { type: integer } }
+        - { name: statut, in: query, schema: { type: string, enum: [nouveau, actif, inactif] } }
+        - { name: q, in: query, schema: { type: string }, description: Recherche nom/prenom/email/tel }
+        - { $ref: "#/components/parameters/page" }
+        - { $ref: "#/components/parameters/perPage" }
+      responses: { "200": { description: Liste paginee } }
+    post:
+      tags: [Clients]
+      summary: Creer un client
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ClientInput" }
+      responses: { "201": { description: Cree } }
+  /clients/{id}:
+    parameters: [{ $ref: "#/components/parameters/id" }]
+    get: { tags: [Clients], summary: Detail client, responses: { "200": { description: OK } } }
+    put: { tags: [Clients], summary: Modifier client, responses: { "200": { description: OK } } }
+    delete: { tags: [Clients], summary: Supprimer client, responses: { "204": { description: Supprime } } }
+
+  /livreurs:
+    get:
+      tags: [Livreurs]
+      summary: Liste des livreurs (avec CA et nb de courses cumules)
+      parameters:
+        - { $ref: "#/components/parameters/paysIdQuery" }
+        - { name: ville_id, in: query, schema: { type: integer } }
+        - { name: statut, in: query, schema: { type: string, enum: [actif, inactif, suspendu] } }
+      responses: { "200": { description: Liste } }
+    post:
+      tags: [Livreurs]
+      summary: Creer un livreur
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LivreurInput" }
+      responses: { "201": { description: Cree } }
+  /livreurs/{id}:
+    parameters: [{ $ref: "#/components/parameters/id" }]
+    get: { tags: [Livreurs], summary: Detail livreur, responses: { "200": { description: OK } } }
+    put: { tags: [Livreurs], summary: Modifier livreur, responses: { "200": { description: OK } } }
+    delete: { tags: [Livreurs], summary: Supprimer livreur, responses: { "204": { description: Supprime } } }
+
+  /courses:
+    get:
+      tags: [Courses]
+      summary: Liste des courses (paginee, avec libelles joints)
+      parameters:
+        - { $ref: "#/components/parameters/paysIdQuery" }
+        - { name: ville_id, in: query, schema: { type: integer } }
+        - { name: service_id, in: query, schema: { type: integer } }
+        - { name: client_id, in: query, schema: { type: integer } }
+        - { name: livreur_id, in: query, schema: { type: integer } }
+        - { name: statut, in: query, schema: { type: string, enum: [en_attente, en_cours, terminee, annulee] } }
+        - { $ref: "#/components/parameters/from" }
+        - { $ref: "#/components/parameters/to" }
+        - { $ref: "#/components/parameters/page" }
+        - { $ref: "#/components/parameters/perPage" }
+      responses: { "200": { description: Liste paginee } }
+    post:
+      tags: [Courses]
+      summary: Creer une course
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CourseInput" }
+      responses: { "201": { description: Cree } }
+  /courses/{id}:
+    parameters: [{ $ref: "#/components/parameters/id" }]
+    get: { tags: [Courses], summary: Detail course, responses: { "200": { description: OK } } }
+    put: { tags: [Courses], summary: Modifier course, responses: { "200": { description: OK } } }
+    delete: { tags: [Courses], summary: Supprimer course, responses: { "204": { description: Supprime } } }
+
+  /paiements:
+    get:
+      tags: [Paiements]
+      summary: Liste des paiements (paginee)
+      parameters:
+        - { name: type, in: query, schema: { type: string, enum: [carte, especes, mobile_money, autre] } }
+        - { name: statut, in: query, schema: { type: string, enum: [en_attente, valide, echoue, rembourse] } }
+        - { $ref: "#/components/parameters/paysIdQuery" }
+        - { $ref: "#/components/parameters/from" }
+        - { $ref: "#/components/parameters/to" }
+        - { $ref: "#/components/parameters/page" }
+        - { $ref: "#/components/parameters/perPage" }
+      responses: { "200": { description: Liste paginee } }
+    post:
+      tags: [Paiements]
+      summary: Creer un paiement
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PaiementInput" }
+      responses: { "201": { description: Cree } }
+  /paiements/{id}:
+    parameters: [{ $ref: "#/components/parameters/id" }]
+    get: { tags: [Paiements], summary: Detail paiement, responses: { "200": { description: OK } } }
+    put: { tags: [Paiements], summary: Modifier paiement, responses: { "200": { description: OK } } }
+    delete: { tags: [Paiements], summary: Supprimer paiement, responses: { "204": { description: Supprime } } }
+
+  /utilisateurs:
+    get:
+      tags: [Administration]
+      summary: Liste des utilisateurs
+      parameters:
+        - { name: role_id, in: query, schema: { type: integer } }
+        - { name: q, in: query, schema: { type: string } }
+      responses: { "200": { description: Liste } }
+    post:
+      tags: [Administration]
+      summary: Creer un utilisateur
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UtilisateurInput" }
+      responses:
+        "201": { description: Cree }
+        "401": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /utilisateurs/{id}:
+    parameters: [{ $ref: "#/components/parameters/id" }]
+    get: { tags: [Administration], summary: Detail utilisateur, responses: { "200": { description: OK } } }
+    put:
+      tags: [Administration]
+      summary: Modifier un utilisateur
+      security: [{ bearerAuth: [] }]
+      responses: { "200": { description: Modifie } }
+    delete:
+      tags: [Administration]
+      summary: Supprimer un utilisateur
+      security: [{ bearerAuth: [] }]
+      responses: { "204": { description: Supprime } }
+
+  /roles:
+    get: { tags: [Administration], summary: Liste des roles, responses: { "200": { description: Liste } } }
+    post:
+      tags: [Administration]
+      summary: Creer un role
+      security: [{ bearerAuth: [] }]
+      responses: { "201": { description: Cree } }
+  /roles/{id}:
+    parameters: [{ $ref: "#/components/parameters/id" }]
+    get: { tags: [Administration], summary: Detail role (avec droits), responses: { "200": { description: OK } } }
+    put:
+      tags: [Administration]
+      summary: Modifier un role
+      security: [{ bearerAuth: [] }]
+      responses: { "200": { description: OK } }
+    delete:
+      tags: [Administration]
+      summary: Supprimer un role
+      security: [{ bearerAuth: [] }]
+      responses: { "204": { description: Supprime } }
+  /roles/{id}/droits:
+    parameters: [{ $ref: "#/components/parameters/id" }]
+    put:
+      tags: [Administration]
+      summary: Definir les droits d'un role
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                droit_ids:
+                  type: array
+                  items: { type: integer }
+      responses: { "200": { description: Droits mis a jour } }
+
+  /droits-acces:
+    get:
+      tags: [Administration]
+      summary: Liste des droits d'acces
+      parameters: [{ name: module_concerne, in: query, schema: { type: string } }]
+      responses: { "200": { description: Liste } }
+    post:
+      tags: [Administration]
+      summary: Creer un droit
+      security: [{ bearerAuth: [] }]
+      responses: { "201": { description: Cree } }
+  /droits-acces/{id}:
+    parameters: [{ $ref: "#/components/parameters/id" }]
+    get: { tags: [Administration], summary: Detail droit, responses: { "200": { description: OK } } }
+    put:
+      tags: [Administration]
+      summary: Modifier un droit
+      security: [{ bearerAuth: [] }]
+      responses: { "200": { description: OK } }
+    delete:
+      tags: [Administration]
+      summary: Supprimer un droit
+      security: [{ bearerAuth: [] }]
+      responses: { "204": { description: Supprime } }
+
+  /connexions:
+    get:
+      tags: [Tracabilite]
+      summary: Historique des connexions/actions (paginee)
+      parameters:
+        - { name: utilisateur_id, in: query, schema: { type: integer } }
+        - { name: action, in: query, schema: { type: string } }
+        - { $ref: "#/components/parameters/page" }
+        - { $ref: "#/components/parameters/perPage" }
+      responses: { "200": { description: Liste paginee } }
+    post:
+      tags: [Tracabilite]
+      summary: Journaliser une action
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [utilisateur_id, date_connexion, adresse_ip]
+              properties:
+                utilisateur_id: { type: integer }
+                date_connexion: { type: string, example: "2026-07-09 10:00:00" }
+                adresse_ip: { type: string }
+                duree_secondes: { type: integer }
+                action: { type: string }
+      responses: { "201": { description: Cree } }
+
+  /rapports:
+    get:
+      tags: [Tracabilite]
+      summary: Historique des rapports generes
+      parameters:
+        - { $ref: "#/components/parameters/paysIdQuery" }
+        - { name: utilisateur_id, in: query, schema: { type: integer } }
+      responses: { "200": { description: Liste } }
+  /rapports/export:
+    get:
+      tags: [Tracabilite]
+      summary: Exporter un rapport (CSV ou PDF)
+      description: Genere un fichier telechargeable et journalise l'export.
+      parameters:
+        - { name: pays_id, in: query, required: true, schema: { type: integer } }
+        - { name: type, in: query, required: true, schema: { type: string, enum: [csv, pdf] } }
+        - { $ref: "#/components/parameters/from" }
+        - { $ref: "#/components/parameters/to" }
+      responses:
+        "200":
+          description: Fichier
+          content:
+            text/csv: { schema: { type: string, format: binary } }
+            application/pdf: { schema: { type: string, format: binary } }
+        "422": { $ref: "#/components/responses/Error" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    id:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer }
+    from:
+      name: from
+      in: query
+      schema: { type: string, format: date, example: "2026-01-01" }
+      description: Debut de periode (defaut = 1er du mois courant)
+    to:
+      name: to
+      in: query
+      schema: { type: string, format: date, example: "2026-12-31" }
+      description: Fin de periode (defaut = dernier jour du mois courant)
+    periode:
+      name: periode
+      in: query
+      schema: { type: string, example: "2026-06" }
+      description: Raccourci pour un mois (YYYY-MM), prioritaire si from/to absents
+    paysIdQuery:
+      name: pays_id
+      in: query
+      schema: { type: integer }
+    page:
+      name: page
+      in: query
+      schema: { type: integer, default: 1 }
+    perPage:
+      name: per_page
+      in: query
+      schema: { type: integer, default: 25, maximum: 200 }
+
+  responses:
+    Error:
+      description: Erreur
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Success:
+      type: object
+      properties:
+        success: { type: boolean, example: true }
+        data: {}
+    Error:
+      type: object
+      properties:
+        success: { type: boolean, example: false }
+        error: { type: string }
+        details: { nullable: true }
+    Periode:
+      type: object
+      properties:
+        from: { type: string }
+        to: { type: string }
+    PaysInput:
+      type: object
+      required: [nom_pays]
+      properties:
+        nom_pays: { type: string, example: Cote d'Ivoire }
+        code_iso: { type: string, example: CI }
+        devise: { type: string, example: XOF }
+        ca_global: { type: number }
+    PaysDashboard:
+      type: object
+      properties:
+        id: { type: integer }
+        nom_pays: { type: string }
+        code_iso: { type: string }
+        devise: { type: string }
+        ca: { type: number }
+        ca_precedent: { type: number }
+        evolution_pct: { type: number, nullable: true }
+        nb_courses: { type: integer }
+        nb_clients: { type: integer }
+    PaysStats:
+      type: object
+      properties:
+        pays: { type: object }
+        periode: { $ref: "#/components/schemas/Periode" }
+        ca_total: { type: number }
+        ca_par_ville:
+          type: array
+          items:
+            type: object
+            properties:
+              ville_id: { type: integer }
+              nom_ville: { type: string }
+              ca: { type: number }
+              nb_courses: { type: integer }
+        ca_par_service:
+          type: array
+          items:
+            type: object
+            properties:
+              service_id: { type: integer }
+              nom_service: { type: string }
+              ca: { type: number }
+              nb_courses: { type: integer }
+        evolution_clients:
+          type: array
+          items:
+            type: object
+            properties:
+              mois: { type: string }
+              nouveaux_clients: { type: integer }
+              clients_actifs: { type: integer }
+              nb_courses: { type: integer }
+              duree_moyenne_minutes: { type: number }
+        type_paiement:
+          type: array
+          items:
+            type: object
+            properties:
+              type: { type: string }
+              montant: { type: number }
+              nb: { type: integer }
+              pct: { type: number }
+        livreurs:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: integer }
+              nom: { type: string }
+              prenom: { type: string }
+              note_moyenne: { type: number }
+              statut: { type: string }
+              nb_courses: { type: integer }
+              ca: { type: number }
+              evolution_pct: { type: number, nullable: true }
+    ClientInput:
+      type: object
+      required: [ville_id, nom, prenom, date_inscription]
+      properties:
+        ville_id: { type: integer }
+        nom: { type: string }
+        prenom: { type: string }
+        email: { type: string }
+        telephone: { type: string }
+        date_inscription: { type: string, format: date }
+        statut: { type: string, enum: [nouveau, actif, inactif] }
+    LivreurInput:
+      type: object
+      required: [ville_id, nom, prenom]
+      properties:
+        ville_id: { type: integer }
+        nom: { type: string }
+        prenom: { type: string }
+        telephone: { type: string }
+        note_moyenne: { type: number }
+        statut: { type: string, enum: [actif, inactif, suspendu] }
+    CourseInput:
+      type: object
+      required: [client_id, ville_id, service_id, date_course]
+      properties:
+        client_id: { type: integer }
+        livreur_id: { type: integer, nullable: true }
+        ville_id: { type: integer }
+        service_id: { type: integer }
+        date_course: { type: string, example: "2026-06-15 14:30:00" }
+        montant: { type: number }
+        duree_minutes: { type: integer }
+        statut: { type: string, enum: [en_attente, en_cours, terminee, annulee] }
+    PaiementInput:
+      type: object
+      required: [course_id, type_paiement, montant, date_paiement]
+      properties:
+        course_id: { type: integer }
+        type_paiement: { type: string, enum: [carte, especes, mobile_money, autre] }
+        montant: { type: number }
+        statut: { type: string, enum: [en_attente, valide, echoue, rembourse] }
+        date_paiement: { type: string, example: "2026-06-15 14:35:00" }
+    Utilisateur:
+      type: object
+      properties:
+        id: { type: integer }
+        role_id: { type: integer }
+        role: { type: string }
+        nom: { type: string }
+        prenom: { type: string }
+        email: { type: string }
+        theme_pref: { type: string, enum: [clair, sombre] }
+        couleur_pref: { type: string, enum: [noir, vert] }
+        actif: { type: boolean }
+    UtilisateurInput:
+      type: object
+      required: [nom, prenom, email, mot_de_passe, role_id]
+      properties:
+        nom: { type: string }
+        prenom: { type: string }
+        email: { type: string }
+        mot_de_passe: { type: string }
+        role_id: { type: integer }
+        theme_pref: { type: string, enum: [clair, sombre] }
+        couleur_pref: { type: string, enum: [noir, vert] }
+        actif: { type: boolean }
+        pays_ids:
+          type: array
+          items: { type: integer }
