@@ -234,16 +234,16 @@ $pdo->exec(
 echo "Utilisateurs...\n";
 $hash = password_hash('password', PASSWORD_DEFAULT);
 $usersDef = [
-    ['SuperAdmin', 'Admin',      'Super',      'admin@mamago.com',      ['Cote d\'Ivoire','Senegal','France']],
-    ['Admin Pays', 'Kouassi',    'Aya',        'ci.admin@mamago.com',   ['Cote d\'Ivoire']],
-    ['Commercial', 'Ndiaye',     'Moussa',     'commercial@mamago.com', ['Senegal']],
+    ['SuperAdmin', 'Admin',   'Super',  'admin@mamago.com',      '+225 07 00 00 00 01', ['Cote d\'Ivoire','Senegal','France']],
+    ['Admin Pays', 'Kouassi', 'Aya',    'ci.admin@mamago.com',   '+225 07 45 12 88 30', ['Cote d\'Ivoire']],
+    ['Commercial', 'Ndiaye',  'Moussa', 'commercial@mamago.com', '+221 77 512 44 09',   ['Senegal']],
 ];
-foreach ($usersDef as [$role, $no, $pr, $email, $paysNoms]) {
+foreach ($usersDef as [$role, $no, $pr, $email, $tel, $paysNoms]) {
     $st = $pdo->prepare(
-        'INSERT INTO utilisateurs (role_id, nom, prenom, email, mot_de_passe_hash, theme_pref, couleur_pref, actif, created_at, updated_at)
-         VALUES (?,?,?,?,?,?,?,1,?,?)'
+        'INSERT INTO utilisateurs (role_id, nom, prenom, email, telephone, mot_de_passe_hash, theme_pref, couleur_pref, actif, created_at, updated_at)
+         VALUES (?,?,?,?,?,?,?,?,1,?,?)'
     );
-    $st->execute([$roleIds[$role], $no, $pr, $email, $hash, 'clair', 'vert', $now, $now]);
+    $st->execute([$roleIds[$role], $no, $pr, $email, $tel, $hash, 'clair', 'vert', $now, $now]);
     $uid = (int) $pdo->lastInsertId();
     foreach ($paysNoms as $pn) {
         $pdo->prepare('INSERT INTO utilisateur_pays (utilisateur_id, pays_id) VALUES (?,?)')

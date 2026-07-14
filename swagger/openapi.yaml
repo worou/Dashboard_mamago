@@ -219,6 +219,40 @@ paths:
       responses:
         "204": { description: Supprime }
         "401": { $ref: "#/components/responses/Error" }
+  /pays/{id}/admins:
+    parameters: [{ $ref: "#/components/parameters/id" }]
+    get:
+      tags: [Pays]
+      summary: Coordonnees du responsable d'administration du pays
+      description: >
+        Renvoie le **responsable** (compte au role `Admin Pays` rattache au
+        pays, `null` si aucun n'est designe) et l'ensemble des **contacts**
+        ayant acces a ce pays. Accessible a tout utilisateur ayant acces au
+        pays — un Admin Pays peut donc consulter ses propres coordonnees
+        depuis son espace (la liste `/utilisateurs`, elle, reste reservee au
+        SuperAdmin).
+      responses:
+        "200":
+          description: Responsable + contacts
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Success"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          responsable:
+                            nullable: true
+                            $ref: "#/components/schemas/Contact"
+                          contacts:
+                            type: array
+                            items: { $ref: "#/components/schemas/Contact" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
   /pays/{id}/stats:
     parameters:
       - { $ref: "#/components/parameters/id" }
@@ -719,6 +753,10 @@ components:
             email:
               type: string
               description: Optionnel — genere en admin.<code_iso>@mamago.com si vide.
+            telephone:
+              type: string
+              nullable: true
+              description: Coordonnees telephoniques du responsable du pays.
             mot_de_passe: { type: string }
     PaysDashboard:
       type: object
@@ -830,6 +868,20 @@ components:
         montant: { type: number }
         statut: { type: string, enum: [en_attente, valide, echoue, rembourse] }
         date_paiement: { type: string, example: "2026-06-15 14:35:00" }
+    Contact:
+      type: object
+      description: Coordonnees d'un compte ayant acces au pays.
+      properties:
+        id: { type: integer }
+        nom: { type: string }
+        prenom: { type: string }
+        email: { type: string, example: ci.admin@mamago.com }
+        telephone: { type: string, nullable: true, example: "+225 07 45 12 88 30" }
+        role: { type: string, example: Admin Pays }
+        actif: { type: boolean }
+        derniere_connexion: { type: string, nullable: true }
+        created_at: { type: string }
+
     Utilisateur:
       type: object
       properties:
@@ -849,6 +901,7 @@ components:
         nom: { type: string }
         prenom: { type: string }
         email: { type: string }
+        telephone: { type: string, nullable: true }
         mot_de_passe: { type: string }
         role_id: { type: integer }
         theme_pref: { type: string, enum: [clair, sombre] }

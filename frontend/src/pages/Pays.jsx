@@ -2,22 +2,20 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useFetch } from '../lib/useFetch';
-import { money, moneyDev, ICONS, tintFor, codeFor, deltaPill, S, styleObj, html, icHtml } from '../lib/ui';
+import { money, moneyDev, ICONS, tintFor, codeFor, paysSlug, deltaPill, S, styleObj, html, icHtml } from '../lib/ui';
 import { Sparkline } from '../components/Charts';
 import { Loader, ErrorBox, Empty } from '../components/common';
-import Modal from '../components/Modal';
-import { useToast } from '../context/ToastContext';
+import CreatePaysModal from '../components/CreatePaysModal';
 import { useAuth } from '../context/AuthContext';
 
 export default function Pays() {
   const nav = useNavigate();
-  const { toast } = useToast();
   const { user } = useAuth();
   const [q, setQ] = useState('');
   const [sortCA, setSortCA] = useState(false);
   const [modal, setModal] = useState(false);
-  const [form, setForm] = useState({});
-  const [busy, setBusy] = useState(false);
+
+
 
   const isSuperAdmin = user?.role === 'SuperAdmin';
 
@@ -33,62 +31,8 @@ export default function Pays() {
   let list = d.pays.filter((p) => p.nom_pays.toLowerCase().includes(q.toLowerCase()));
   if (sortCA) list = [...list].sort((a, b) => b.ca - a.ca);
 
-  // Cree le pays et, si demande, provisionne son interface admin
-  // (compte « Admin Pays » rattache au perimetre du pays).
-  const submit = async () => {
-    if (!form.nom_pays || !form.code_iso) { toast('Nom et code requis'); return; }
-    if (form.creer_admin && (!form.admin_nom || !form.admin_prenom || !form.admin_mdp)) {
-      toast("Compte admin : prénom, nom et mot de passe requis");
-      return;
-    }
-    setBusy(true);
-    try {
-      const res = await api.createPays({
-        nom_pays: form.nom_pays,
-        code_iso: form.code_iso.toUpperCase().slice(0, 2),
-        devise: form.devise || 'XOF',
-        creer_admin: !!form.creer_admin,
-        admin: form.creer_admin ? {
-          nom: form.admin_nom,
-          prenom: form.admin_prenom,
-          email: form.admin_email || '',   // vide => genere admin.<code>@mamago.com
-          mot_de_passe: form.admin_mdp,
-        } : undefined,
-      });
-      toast(res.admin
-        ? `${form.nom_pays} créé · admin : ${res.admin.email}`
-        : `${form.nom_pays} créé`);
-      setModal(false); setForm({});
-      reload();
-    } catch (ex) {
-      toast(ex.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  // Champs du formulaire : la section « admin » n'apparait que si la case est cochee
-  const modalFields = [
-    { key: 'nom_pays', label: 'Nom du pays', ph: 'Ex. Niger' },
-    { key: 'code_iso', label: 'Code ISO (2 lettres)', ph: 'Ex. NE' },
-    { key: 'devise', label: 'Devise', type: 'select', options: ['XOF', 'XAF', 'GNF', 'EUR'] },
-    {
-      key: 'creer_admin', type: 'checkbox',
-      label: "Créer l'interface admin de ce pays",
-      hint: "Provisionne un compte « Admin Pays » qui ne pourra gérer que ce pays.",
-    },
-    ...(form.creer_admin ? [
-      { key: 'admin_section', type: 'section', label: 'Compte Admin Pays' },
-      { key: 'admin_prenom', label: 'Prénom', ph: 'Ex. Hadiza' },
-      { key: 'admin_nom', label: 'Nom', ph: 'Ex. Souley' },
-      {
-        key: 'admin_email', label: 'E-mail (optionnel)',
-        ph: 'admin.' + (form.code_iso || 'xx').toLowerCase() + '@mamago.com',
-        hint: 'Laissez vide pour générer automatiquement.',
-      },
-      { key: 'admin_mdp', label: 'Mot de passe', type: 'password', ph: '••••••••' },
-    ] : []),
-  ];
+  // La creation d'un pays (+ provisionnement de son admin) est mutualisee
+  // avec l'ecran « Interface pays » : voir components/CreatePaysModal.
 
   return (
     <div style={{ animation: 'floatIn .35s ease both' }}>
@@ -101,7 +45,7 @@ export default function Pays() {
           {sortCA ? 'Trié par CA ✓' : 'Trier par CA'}
         </button>
         {isSuperAdmin && (
-          <button onClick={() => { setForm({ devise: 'XOF', creer_admin: true }); setModal(true); }} style={styleObj(S.btnGreen)}>+ Ajouter un pays</button>
+          <button onClick={() => setModal(true)} style={styleObj(S.btnGreen)}>+ Ajouter un pays</button>
         )}
       </div>
 
@@ -136,7 +80,7 @@ export default function Pays() {
 
                 {/* Chaque pays dispose automatiquement de son espace d'administration */}
                 <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
-                  <button onClick={() => nav('/admin/' + p.id)} style={{ ...styleObj(S.btnGreen), flex: 1 }}>Gérer l'espace</button>
+                  <button onClick={() => nav('/interface/' + paysSlug(p))} style={{ ...styleObj(S.btnGreen), flex: 1 }}>Gérer l'espace</button>
                   <button onClick={() => nav('/stats/' + p.id)} style={{ ...styleObj(S.btnGhost), flex: 1 }}>Statistiques</button>
                 </div>
               </div>
@@ -146,15 +90,9 @@ export default function Pays() {
       )}
 
       {modal && (
-        <Modal
-          title="Ajouter un pays"
-          cta={form.creer_admin ? 'Créer le pays et son admin' : 'Ajouter le pays'}
-          busy={busy}
-          values={form}
-          onChange={(k, v) => setForm((f) => ({ ...f, [k]: v }))}
-          onClose={() => { setModal(false); setForm({}); }}
-          onSubmit={submit}
-          fields={modalFields}
+        <CreatePaysModal
+          onClose={() => setModal(false)}
+          onCreated={() => { setModal(false); reload(); }}
         />
       )}
     </div>

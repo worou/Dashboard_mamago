@@ -39,12 +39,31 @@ VITE_API_URL=http://mon-serveur/mamago/api
 | `/utilisateurs` | Utilisateurs | `GET/POST/PUT/DELETE /utilisateurs`, cartes de rôles (SuperAdmin uniquement) |
 | `/parametres` | Paramètres | thème/accent + activités (`GET /connexions`) |
 
-### Espace admin par pays
+### Interface pays générée + son URL
 
-Chaque pays de la base obtient **automatiquement** son espace
-(`/admin/:paysId`) — rien n'est codé en dur. Depuis la page **Pays**, le
-bouton **« Gérer l'espace »** y mène. Le SuperAdmin peut créer un pays *et*
-provisionner son compte **Admin Pays** dans le même formulaire.
+Le menu **« Interface pays »** demande le pays dans un champ, puis **génère
+l'URL** à laquelle son interface est affichée — construite à partir du **code
+du pays** :
+
+```
+http://localhost:5173/interface/ci      # Côte d'Ivoire
+http://localhost:5173/interface/sn      # Sénégal
+```
+
+L'URL est affichée avec un bouton **Copier**, s'ouvre dans l'app ou dans un
+nouvel onglet, reste **valable** et rejoue l'interface avec les données à jour.
+La route accepte le code ISO (`ci`) ou l'id (`1`).
+
+Pour un domaine dédié (ex. `https://admin.mamagoapps.com/interface/ci`) :
+
+```bash
+# .env
+VITE_INTERFACE_BASE_URL=https://admin.mamagoapps.com
+```
+
+Chaque pays de la base obtient **automatiquement** son interface — rien n'est
+codé en dur. Le SuperAdmin peut créer un pays *et* provisionner son compte
+**Admin Pays** dans le même formulaire.
 
 L'interface s'adapte au rôle (menu, boutons), mais **c'est l'API qui fait
 foi** : un Admin Pays reçoit un **403** sur tout pays hors de son périmètre,

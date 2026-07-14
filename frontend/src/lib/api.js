@@ -101,6 +101,8 @@ export const api = {
   // Pays — createPays cree aussi le compte "Admin Pays" si creer_admin=true
   pays: (params) => request('/pays' + qs(params)),
   paysOne: (id) => request('/pays/' + id),
+  // Coordonnees du responsable d'administration du pays + autres acces
+  paysAdmins: (id) => request('/pays/' + id + '/admins'),
   createPays: (body) => request('/pays', { method: 'POST', body }),
   updatePays: (id, body) => request('/pays/' + id, { method: 'PUT', body }),
   deletePays: (id) => request('/pays/' + id, { method: 'DELETE' }),

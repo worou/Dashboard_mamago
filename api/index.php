@@ -109,6 +109,7 @@ $router->get('/stats/evolution', fn ($r) => $stats->evolution($r));
 $pays = new PaysController();
 $router->get('/pays',         fn ($r) => $pays->index($r));
 $router->get('/pays/{id}',    fn ($r, $p) => $pays->show($r, $p));
+$router->get('/pays/{id}/admins', fn ($r, $p) => $pays->admins($r, $p));
 $router->post('/pays',        fn ($r) => $pays->store($r));
 $router->put('/pays/{id}',    fn ($r, $p) => $pays->update($r, $p));
 $router->delete('/pays/{id}', fn ($r, $p) => $pays->destroy($r, $p));

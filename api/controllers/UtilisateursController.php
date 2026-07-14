@@ -66,12 +66,13 @@ class UtilisateursController
         try {
             $stmt = Database::pdo()->prepare(
                 'INSERT INTO utilisateurs
-                   (role_id, nom, prenom, email, mot_de_passe_hash, theme_pref, couleur_pref, actif, created_at, updated_at)
-                 VALUES (?,?,?,?,?,?,?,?,?,?)'
+                   (role_id, nom, prenom, email, telephone, mot_de_passe_hash, theme_pref, couleur_pref, actif, created_at, updated_at)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?)'
             );
             $now = date('Y-m-d H:i:s');
             $stmt->execute([
                 (int) $b['role_id'], $b['nom'], $b['prenom'], $b['email'],
+                $b['telephone'] ?? null,
                 password_hash($b['mot_de_passe'], PASSWORD_DEFAULT),
                 $b['theme_pref']   ?? 'clair',
                 $b['couleur_pref'] ?? 'vert',
@@ -103,7 +104,7 @@ class UtilisateursController
         $b = $req->body();
         $fields = [];
         $vals   = [];
-        foreach (['role_id', 'nom', 'prenom', 'email', 'theme_pref', 'couleur_pref'] as $f) {
+        foreach (['role_id', 'nom', 'prenom', 'email', 'telephone', 'theme_pref', 'couleur_pref'] as $f) {
             if (array_key_exists($f, $b)) {
                 $fields[] = "$f = ?";
                 $vals[]   = $b[$f];

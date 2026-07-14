@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useFetch } from '../lib/useFetch';
-import { money, moneyDev, ICONS, tintFor, codeFor, S, styleObj, html, icHtml } from '../lib/ui';
+import { money, moneyDev, ICONS, tintFor, codeFor, interfaceUrl, initials, S, styleObj, html, icHtml } from '../lib/ui';
 import { IconSpan, Loader, ErrorBox, Empty } from '../components/common';
 import Modal from '../components/Modal';
 import { useToast } from '../context/ToastContext';
@@ -42,26 +42,37 @@ export default function EspacePays() {
   const readOnly = user?.role === 'Commercial';
 
   // Charge toutes les informations du pays presentes en base.
+  // Le parametre d'URL accepte le code ISO (« ci ») ou l'id numerique.
   const { loading, error, data, reload } = useFetch(async () => {
-    const [pays, villes, services, livreurs, clientsRes, coursesRes] = await Promise.all([
-      api.paysOne(paysId),
-      api.villes.list({ pays_id: paysId }),
+    const list = await api.pays();
+    const ref = String(paysId).toLowerCase();
+    const pays = list.find(
+      (p) => String(p.id) === ref || String(p.code_iso || '').toLowerCase() === ref
+    );
+    if (!pays) throw new Error(`Aucun pays ne correspond à « ${paysId} » dans votre périmètre.`);
+
+    const id = pays.id;
+    const [villes, services, livreurs, clientsRes, coursesRes, admins] = await Promise.all([
+      api.villes.list({ pays_id: id }),
       api.services(),
-      api.livreurs.list({ pays_id: paysId }),
-      api.clients.list({ pays_id: paysId, per_page: 200 }),
+      api.livreurs.list({ pays_id: id }),
+      api.clients.list({ pays_id: id, per_page: 200 }),
       // per_page=1 hors de l'onglet Courses : on ne veut que le total (meta)
-      api.courses.list({ pays_id: paysId, per_page: tab === 'courses' ? 50 : 1 }),
+      api.courses.list({ pays_id: id, per_page: tab === 'courses' ? 50 : 1 }),
+      api.paysAdmins(id),
     ]);
     const clients = clientsRes.data || [];
     const courses = coursesRes.data || [];
     const nbCourses = coursesRes.meta?.total ?? courses.length;
-    return { pays, villes, services, livreurs, clients, courses, nbCourses };
+    return { pays, villes, services, livreurs, clients, courses, nbCourses, admins };
   }, [paysId, tab, version]);
 
   if (loading) return <Loader />;
   if (error) return <ErrorBox message={error} onRetry={reload} />;
 
-  const { pays, villes, services, livreurs, clients, courses, nbCourses } = data;
+  const { pays, villes, services, livreurs, clients, courses, nbCourses, admins } = data;
+  const responsable = admins?.responsable || null;
+  const autresContacts = (admins?.contacts || []).filter((c) => c.id !== responsable?.id);
   const tn = tintFor(codeFor(pays));
   const devise = pays.devise || '';
   const refresh = () => setVersion((v) => v + 1);
@@ -146,7 +157,7 @@ export default function EspacePays() {
     try {
       // Prepare le corps selon la ressource
       const b = { ...form };
-      if (tab === 'villes') b.pays_id = Number(paysId);
+      if (tab === 'villes') b.pays_id = pays.id;   // jamais le param d'URL (peut etre un code)
       ['ville_id', 'service_id', 'client_id', 'livreur_id', 'duree_minutes'].forEach((k) => {
         if (b[k] === '' || b[k] === undefined) delete b[k];
         else if (b[k] !== null) b[k] = Number(b[k]);
@@ -223,9 +234,18 @@ export default function EspacePays() {
           <span style={{ width: 52, height: 52, borderRadius: 14, background: tn[0], color: tn[1], display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Sora', fontWeight: 700, fontSize: 17 }}>{codeFor(pays)}</span>
           <div>
             <div style={{ fontFamily: 'Sora', fontWeight: 700, fontSize: 20 }}>{pays.nom_pays} — Espace admin</div>
-            <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>
-              {villes.length} villes · {livreurs.length} livreurs · {clients.length} clients · devise {devise}
-              {readOnly && ' · lecture seule'}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
+              <code style={{ fontSize: 12, fontFamily: 'Space Grotesk, monospace', color: 'var(--green-hi)', background: 'var(--green-dim)', padding: '3px 8px', borderRadius: 6 }}>
+                {interfaceUrl(pays)}
+              </code>
+              <button
+                onClick={() => { navigator.clipboard?.writeText(interfaceUrl(pays)); toast('URL copiée'); }}
+                title="Copier l'URL de cette interface"
+                style={{ border: '1px solid var(--border)', background: 'transparent', color: 'var(--text2)', borderRadius: 7, padding: '3px 8px', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}
+              >
+                Copier
+              </button>
+              {readOnly && <span style={{ fontSize: 11.5, color: 'var(--amber)', fontWeight: 600 }}>lecture seule</span>}
             </div>
           </div>
         </div>
@@ -251,6 +271,122 @@ export default function EspacePays() {
             <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3 }}>{k.sub}</div>
           </div>
         ))}
+      </div>
+
+      {/* Coordonnees du responsable d'administration du pays */}
+      <div style={{ ...styleObj(S.card), marginBottom: 16 }}>
+        <div style={{ fontFamily: 'Sora', fontWeight: 700, fontSize: 16 }}>Responsable de l'administration</div>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2, marginBottom: 14 }}>
+          Contact en charge de {pays.nom_pays}
+        </div>
+
+        {responsable ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 12, padding: 14 }}>
+            <span style={{ width: 46, height: 46, borderRadius: '50%', background: 'var(--green-dim)', color: 'var(--green-hi)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Sora', fontWeight: 700, fontSize: 15, flexShrink: 0 }}>
+              {initials(`${responsable.prenom} ${responsable.nom}`)}
+            </span>
+
+            <div style={{ flex: 1, minWidth: 180 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span style={{ fontWeight: 700, fontSize: 14.5 }}>{responsable.prenom} {responsable.nom}</span>
+                <span style={styleObj('font-size:11.5px;font-weight:700;padding:2px 9px;border-radius:20px;background:var(--green-dim);color:var(--green-hi);')}>
+                  {responsable.role}
+                </span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', fontSize: 11.5, fontWeight: 600, color: responsable.actif ? 'var(--green-hi)' : 'var(--muted)' }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'currentColor', display: 'inline-block', marginRight: 5 }} />
+                  {responsable.actif ? 'Actif' : 'Inactif'}
+                </span>
+              </div>
+
+              {/* E-mail */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 6 }}>
+                <IconSpan path={ICONS.mail} size={14} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+                <a href={'mailto:' + responsable.email} style={{ fontSize: 13, color: 'var(--green-hi)', fontWeight: 600 }}>
+                  {responsable.email}
+                </a>
+                <button
+                  onClick={() => { navigator.clipboard?.writeText(responsable.email); toast('E-mail copié'); }}
+                  style={{ border: '1px solid var(--border)', background: 'transparent', color: 'var(--text2)', borderRadius: 6, padding: '2px 7px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+                >
+                  Copier
+                </button>
+              </div>
+
+              {/* Telephone */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 5 }}>
+                <IconSpan path={ICONS.phone} size={14} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+                {responsable.telephone ? (
+                  <>
+                    <a href={'tel:' + String(responsable.telephone).replace(/\s/g, '')} style={{ fontSize: 13, color: 'var(--green-hi)', fontWeight: 600 }}>
+                      {responsable.telephone}
+                    </a>
+                    <button
+                      onClick={() => { navigator.clipboard?.writeText(responsable.telephone); toast('Téléphone copié'); }}
+                      style={{ border: '1px solid var(--border)', background: 'transparent', color: 'var(--text2)', borderRadius: 6, padding: '2px 7px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+                    >
+                      Copier
+                    </button>
+                  </>
+                ) : (
+                  <span style={{ fontSize: 12.5, color: 'var(--muted)', fontStyle: 'italic' }}>Aucun téléphone renseigné</span>
+                )}
+              </div>
+
+              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>
+                Dernière connexion : {fmtDate(responsable.derniere_connexion)}
+                {responsable.created_at && ` · compte créé le ${String(responsable.created_at).slice(0, 10)}`}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <a href={'mailto:' + responsable.email} style={{ ...styleObj(S.btnGreen), textDecoration: 'none', color: '#04140C', textAlign: 'center' }}>
+                Envoyer un e-mail
+              </a>
+              {responsable.telephone && (
+                <a href={'tel:' + String(responsable.telephone).replace(/\s/g, '')} style={{ ...styleObj(S.btnGhost), textDecoration: 'none', textAlign: 'center' }}>
+                  Appeler
+                </a>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div style={{ background: 'var(--surface2)', border: '1px dashed var(--border-hi)', borderRadius: 12, padding: 16, fontSize: 13, color: 'var(--text2)' }}>
+            <b>Aucun responsable désigné</b> pour {pays.nom_pays}.
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+              {user?.role === 'SuperAdmin'
+                ? 'Créez un compte « Admin Pays » et rattachez-le à ce pays depuis le menu Utilisateurs.'
+                : "Contactez un SuperAdmin pour qu'un responsable soit désigné."}
+            </div>
+          </div>
+        )}
+
+        {/* Autres comptes ayant acces a ce pays */}
+        {autresContacts.length > 0 && (
+          <div style={{ marginTop: 14 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.6px', color: 'var(--muted)', marginBottom: 8 }}>
+              Autres accès à ce pays
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {autresContacts.map((c) => (
+                <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
+                  <span style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--surface2)', color: 'var(--text2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 11, flexShrink: 0 }}>
+                    {initials(`${c.prenom} ${c.nom}`)}
+                  </span>
+                  <span style={{ fontWeight: 600 }}>{c.prenom} {c.nom}</span>
+                  <a href={'mailto:' + c.email} style={{ color: 'var(--text2)', fontSize: 12.5 }}>{c.email}</a>
+                  {c.telephone && (
+                    <a href={'tel:' + String(c.telephone).replace(/\s/g, '')} style={{ color: 'var(--text2)', fontSize: 12.5 }}>
+                      {c.telephone}
+                    </a>
+                  )}
+                  <span style={styleObj('font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;background:var(--surface2);color:var(--text2);')}>
+                    {c.role}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Onglets */}

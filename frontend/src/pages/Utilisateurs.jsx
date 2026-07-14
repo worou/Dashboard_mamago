@@ -54,7 +54,11 @@ export default function Utilisateurs() {
   rows = rows.filter((u) => (`${u.prenom} ${u.nom} ${u.email}`).toLowerCase().includes(q.toLowerCase()));
 
   const openAdd = () => { setForm({ role_id: roles[0]?.id }); setModal('add'); };
-  const openEdit = (u) => { setMenu(null); setForm({ id: u.id, nom: u.nom, prenom: u.prenom, email: u.email, role_id: u.role_id }); setModal('edit'); };
+  const openEdit = (u) => {
+    setMenu(null);
+    setForm({ id: u.id, nom: u.nom, prenom: u.prenom, email: u.email, telephone: u.telephone || '', role_id: u.role_id });
+    setModal('edit');
+  };
 
   const remove = async (u) => {
     setMenu(null);
@@ -69,10 +73,17 @@ export default function Utilisateurs() {
     setBusy(true);
     try {
       if (modal === 'add') {
-        await api.createUtilisateur({ nom: form.nom, prenom: form.prenom, email: form.email, mot_de_passe: form.mot_de_passe, role_id: Number(form.role_id) });
+        await api.createUtilisateur({
+          nom: form.nom, prenom: form.prenom, email: form.email,
+          telephone: form.telephone || null,
+          mot_de_passe: form.mot_de_passe, role_id: Number(form.role_id),
+        });
         toast(`${form.prenom} créé`);
       } else {
-        const body = { nom: form.nom, prenom: form.prenom, email: form.email, role_id: Number(form.role_id) };
+        const body = {
+          nom: form.nom, prenom: form.prenom, email: form.email,
+          telephone: form.telephone || null, role_id: Number(form.role_id),
+        };
         if (form.mot_de_passe) body.mot_de_passe = form.mot_de_passe;
         await api.updateUtilisateur(form.id, body);
         toast('Utilisateur modifié');
@@ -178,6 +189,7 @@ export default function Utilisateurs() {
             { key: 'prenom', label: 'Prénom', ph: 'Ex. Aminata' },
             { key: 'nom', label: 'Nom', ph: 'Ex. Sow' },
             { key: 'email', label: 'Adresse e-mail', ph: 'prenom.nom@mamago.com' },
+            { key: 'telephone', label: 'Téléphone', ph: '+225 07 00 00 00 00' },
             { key: 'mot_de_passe', label: modal === 'add' ? 'Mot de passe' : 'Nouveau mot de passe (optionnel)', type: 'password', ph: '••••••••' },
             { key: 'role_id', label: 'Rôle', type: 'select', options: roleOptions },
           ]}

@@ -110,11 +110,12 @@ class PaysController
 
                 $su = $pdo->prepare(
                     'INSERT INTO utilisateurs
-                        (role_id, nom, prenom, email, mot_de_passe_hash, theme_pref, couleur_pref, actif, created_at, updated_at)
-                     VALUES (?,?,?,?,?,?,?,1,?,?)'
+                        (role_id, nom, prenom, email, telephone, mot_de_passe_hash, theme_pref, couleur_pref, actif, created_at, updated_at)
+                     VALUES (?,?,?,?,?,?,?,?,1,?,?)'
                 );
                 $su->execute([
                     (int) $roleId, $admin['nom'], $admin['prenom'], $email,
+                    $admin['telephone'] ?? null,
                     password_hash($admin['mot_de_passe'], PASSWORD_DEFAULT),
                     'clair', 'vert', $now, $now,
                 ]);
@@ -125,11 +126,12 @@ class PaysController
                     ->execute([$userId, $paysId]);
 
                 $adminCree = [
-                    'id'     => $userId,
-                    'nom'    => $admin['nom'],
-                    'prenom' => $admin['prenom'],
-                    'email'  => $email,
-                    'role'   => 'Admin Pays',
+                    'id'        => $userId,
+                    'nom'       => $admin['nom'],
+                    'prenom'    => $admin['prenom'],
+                    'email'     => $email,
+                    'telephone' => $admin['telephone'] ?? null,
+                    'role'      => 'Admin Pays',
                 ];
             }
 
@@ -151,6 +153,58 @@ class PaysController
             $pdo->rollBack();
             Response::error('Creation impossible : ' . $e->getMessage(), 500);
         }
+    }
+
+    /**
+     * GET /pays/{id}/admins
+     * Coordonnees du responsable d'administration du pays (role "Admin Pays")
+     * et des autres comptes ayant acces a ce pays.
+     *
+     * Accessible a quiconque a acces au pays (pas seulement au SuperAdmin) :
+     * un Admin Pays doit pouvoir voir ses propres coordonnees dans son espace.
+     */
+    public function admins(Request $req, array $params): void
+    {
+        $paysId = (int) $params['id'];
+        Auth::requirePaysAccess($req, $paysId);
+
+        if (!$this->model()->find($paysId)) {
+            Response::error('Pays introuvable.', 404);
+        }
+
+        $stmt = Database::pdo()->prepare(
+            "SELECT u.id, u.nom, u.prenom, u.email, u.telephone, u.actif,
+                    u.derniere_connexion, u.created_at, r.libelle_role AS role
+             FROM utilisateurs u
+             JOIN utilisateur_pays up ON up.utilisateur_id = u.id
+             JOIN roles r            ON r.id = u.role_id
+             WHERE up.pays_id = ?
+             ORDER BY FIELD(r.libelle_role, 'Admin Pays', 'Commercial', 'SuperAdmin'), u.nom"
+        );
+        $stmt->execute([$paysId]);
+
+        $contacts = array_map(fn ($u) => [
+            'id'                 => (int) $u['id'],
+            'nom'                => $u['nom'],
+            'prenom'             => $u['prenom'],
+            'email'              => $u['email'],
+            'telephone'          => $u['telephone'],
+            'role'               => $u['role'],
+            'actif'              => (bool) $u['actif'],
+            'derniere_connexion' => $u['derniere_connexion'],
+            'created_at'         => $u['created_at'],
+        ], $stmt->fetchAll());
+
+        // Le responsable = le premier "Admin Pays" rattache au pays.
+        $responsable = null;
+        foreach ($contacts as $c) {
+            if ($c['role'] === 'Admin Pays') {
+                $responsable = $c;
+                break;
+            }
+        }
+
+        Response::ok(['responsable' => $responsable, 'contacts' => $contacts]);
     }
 
     public function update(Request $req, array $params): void

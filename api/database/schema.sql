@@ -187,6 +187,7 @@ CREATE TABLE utilisateurs (
     nom                 VARCHAR(100)    NOT NULL,
     prenom              VARCHAR(100)    NOT NULL,
     email               VARCHAR(150)    NOT NULL,
+    telephone           VARCHAR(20)     NULL,               -- coordonnees du responsable
     mot_de_passe_hash   VARCHAR(255)    NOT NULL,
     theme_pref          ENUM('clair','sombre') NOT NULL DEFAULT 'clair',
     couleur_pref        ENUM('noir','vert') NOT NULL DEFAULT 'vert',
