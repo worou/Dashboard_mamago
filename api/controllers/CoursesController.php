@@ -16,11 +16,32 @@ class CoursesController
         );
     }
 
+    private function paysOfCourse($id): ?int
+    {
+        $stmt = Database::pdo()->prepare(
+            'SELECT v.pays_id FROM courses co JOIN villes v ON v.id = co.ville_id WHERE co.id = ?'
+        );
+        $stmt->execute([$id]);
+        $p = $stmt->fetchColumn();
+        return $p === false ? null : (int) $p;
+    }
+
+    private function paysOfVille($villeId): ?int
+    {
+        $stmt = Database::pdo()->prepare('SELECT pays_id FROM villes WHERE id = ?');
+        $stmt->execute([$villeId]);
+        $p = $stmt->fetchColumn();
+        return $p === false ? null : (int) $p;
+    }
+
     public function index(Request $req): void
     {
         $where  = [];
         $params = [];
-        if ($p = $req->queryParam('pays_id'))    { $where[] = 'v.pays_id = ?';    $params[] = $p; }
+        if ($p = $req->queryParam('pays_id'))    {
+            Auth::requirePaysAccess($req, (int) $p);
+            $where[] = 'v.pays_id = ?';    $params[] = $p;
+        }
         if ($v = $req->queryParam('ville_id'))   { $where[] = 'co.ville_id = ?';   $params[] = $v; }
         if ($s = $req->queryParam('service_id')) { $where[] = 'co.service_id = ?'; $params[] = $s; }
         if ($c = $req->queryParam('client_id'))  { $where[] = 'co.client_id = ?';  $params[] = $c; }
@@ -28,7 +49,8 @@ class CoursesController
         if ($st = $req->queryParam('statut'))    { $where[] = 'co.statut = ?';     $params[] = $st; }
         if ($f = $req->queryParam('from'))       { $where[] = 'co.date_course >= ?'; $params[] = $f . ' 00:00:00'; }
         if ($t = $req->queryParam('to'))         { $where[] = 'co.date_course <= ?'; $params[] = $t . ' 23:59:59'; }
-        $whereSql = $where ? ' WHERE ' . implode(' AND ', $where) : '';
+        $scopeSql = Auth::paysScopeSql($req, 'v.pays_id');
+        $whereSql = ' WHERE 1 = 1' . $scopeSql . ($where ? ' AND ' . implode(' AND ', $where) : '');
 
         $page    = max(1, (int) $req->queryParam('page', 1));
         $perPage = min(200, max(1, (int) $req->queryParam('per_page', 25)));
@@ -73,16 +95,21 @@ class CoursesController
 
     public function show(Request $req, array $params): void
     {
-        $c = $this->model()->find($params['id']);
-        if (!$c) { Response::error('Course introuvable.', 404); }
-        Response::ok($c);
+        $pays = $this->paysOfCourse($params['id']);
+        if ($pays === null) { Response::error('Course introuvable.', 404); }
+        Auth::requirePaysAccess($req, $pays);
+        Response::ok($this->model()->find($params['id']));
     }
 
     public function store(Request $req): void
     {
+        Auth::requireWrite($req);
         foreach (['client_id', 'ville_id', 'service_id', 'date_course'] as $f) {
             if (empty($req->input($f))) { Response::error("Champ obligatoire manquant : $f", 422); }
         }
+        $pays = $this->paysOfVille($req->input('ville_id'));
+        if ($pays === null) { Response::error('Ville invalide.', 422); }
+        Auth::requirePaysAccess($req, $pays);
         try {
             Response::ok($this->model()->create($req->body()), 201);
         } catch (PDOException $e) {
@@ -92,13 +119,26 @@ class CoursesController
 
     public function update(Request $req, array $params): void
     {
-        if (!$this->model()->find($params['id'])) { Response::error('Course introuvable.', 404); }
-        Response::ok($this->model()->update($params['id'], $req->body()));
+        Auth::requireWrite($req);
+        $pays = $this->paysOfCourse($params['id']);
+        if ($pays === null) { Response::error('Course introuvable.', 404); }
+        Auth::requirePaysAccess($req, $pays);
+
+        $b = $req->body();
+        if (isset($b['ville_id'])) {
+            $cible = $this->paysOfVille($b['ville_id']);
+            if ($cible === null) { Response::error('Ville invalide.', 422); }
+            Auth::requirePaysAccess($req, $cible);
+        }
+        Response::ok($this->model()->update($params['id'], $b));
     }
 
     public function destroy(Request $req, array $params): void
     {
-        if (!$this->model()->find($params['id'])) { Response::error('Course introuvable.', 404); }
+        Auth::requireWrite($req);
+        $pays = $this->paysOfCourse($params['id']);
+        if ($pays === null) { Response::error('Course introuvable.', 404); }
+        Auth::requirePaysAccess($req, $pays);
         $this->model()->delete($params['id']);
         Response::noContent();
     }

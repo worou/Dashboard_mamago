@@ -89,4 +89,106 @@ class Auth
     {
         return self::$currentUser;
     }
+
+    // =================================================================
+    // CLOISONNEMENT PAR PAYS
+    // Le contexte (role + perimetre) est charge une fois par requete.
+    // =================================================================
+
+    private static ?array $ctx = null;
+
+    /**
+     * Contexte de l'utilisateur connecte :
+     *   ['id', 'email', 'role', 'pays_ids' => int[]]
+     */
+    public static function context(Request $request): array
+    {
+        if (self::$ctx !== null) {
+            return self::$ctx;
+        }
+        $payload = self::requireAuth($request);
+
+        $stmt = Database::pdo()->prepare(
+            'SELECT u.id, u.email, r.libelle_role AS role
+             FROM utilisateurs u JOIN roles r ON r.id = u.role_id
+             WHERE u.id = ? AND u.actif = 1 LIMIT 1'
+        );
+        $stmt->execute([$payload['sub']]);
+        $user = $stmt->fetch();
+        if (!$user) {
+            Response::error('Compte introuvable ou desactive.', 401);
+        }
+
+        $ps = Database::pdo()->prepare('SELECT pays_id FROM utilisateur_pays WHERE utilisateur_id = ?');
+        $ps->execute([$user['id']]);
+
+        self::$ctx = [
+            'id'       => (int) $user['id'],
+            'email'    => $user['email'],
+            'role'     => $user['role'],
+            'pays_ids' => array_map('intval', $ps->fetchAll(PDO::FETCH_COLUMN)),
+        ];
+        return self::$ctx;
+    }
+
+    public static function isSuperAdmin(Request $request): bool
+    {
+        return self::context($request)['role'] === 'SuperAdmin';
+    }
+
+    /**
+     * Perimetre pays de l'utilisateur.
+     * null  = acces total (SuperAdmin)
+     * int[] = liste des pays autorises (peut etre vide)
+     */
+    public static function scopedPaysIds(Request $request): ?array
+    {
+        $ctx = self::context($request);
+        return $ctx['role'] === 'SuperAdmin' ? null : $ctx['pays_ids'];
+    }
+
+    // Exige que l'utilisateur ait acces a ce pays (403 sinon).
+    public static function requirePaysAccess(Request $request, int $paysId): void
+    {
+        $scope = self::scopedPaysIds($request);
+        if ($scope === null) {
+            return; // SuperAdmin
+        }
+        if (!in_array($paysId, $scope, true)) {
+            Response::error('Acces refuse : ce pays est hors de votre perimetre.', 403);
+        }
+    }
+
+    // Reserve aux SuperAdmin (creation de pays, utilisateurs, roles, droits).
+    public static function requireSuperAdmin(Request $request): void
+    {
+        if (!self::isSuperAdmin($request)) {
+            Response::error('Acces refuse : action reservee au SuperAdmin.', 403);
+        }
+    }
+
+    // Les Commerciaux sont en lecture seule.
+    public static function requireWrite(Request $request): void
+    {
+        if (self::context($request)['role'] === 'Commercial') {
+            Response::error('Acces refuse : votre profil est en lecture seule.', 403);
+        }
+    }
+
+    /**
+     * Fragment SQL de restriction sur une colonne pays.
+     * Retourne ['sql' => ' AND v.pays_id IN (1,2)', 'params' => []] ou sql vide.
+     */
+    public static function paysScopeSql(Request $request, string $column): string
+    {
+        $scope = self::scopedPaysIds($request);
+        if ($scope === null) {
+            return '';
+        }
+        if (empty($scope)) {
+            return " AND 1 = 0"; // aucun pays attribue => aucun resultat
+        }
+        $ids = implode(',', array_map('intval', $scope));
+        return " AND $column IN ($ids)";
+    }
 }

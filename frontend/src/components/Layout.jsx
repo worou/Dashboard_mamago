@@ -5,18 +5,22 @@ import { useTheme } from '../context/ThemeContext';
 import { ICONS, html, icHtml, initials } from '../lib/ui';
 import { IconSpan } from './common';
 
+// superAdminOnly : masque l'entree pour les autres roles (l'API renverrait 403).
 const NAV = [
   { id: 'home', path: '/', label: 'Dashboard', short: 'Home', icon: ICONS.home },
   { id: 'pays', path: '/pays', label: 'Pays', short: 'Pays', icon: ICONS.pays },
+  { id: 'interface', path: '/interface', label: 'Interface pays', short: 'Interface', icon: ICONS.layout },
   { id: 'stat', path: '/stats', label: 'Stat par pays', short: 'Stats', icon: ICONS.stat },
-  { id: 'users', path: '/utilisateurs', label: 'Utilisateurs', short: 'Users', icon: ICONS.users },
+  { id: 'users', path: '/utilisateurs', label: 'Utilisateurs', short: 'Users', icon: ICONS.users, superAdminOnly: true },
   { id: 'settings', path: '/parametres', label: 'Paramètres', short: 'Réglages', icon: ICONS.settings },
 ];
 
 const TITLES = {
-  '/': ['Tableau de bord', "Vue d'ensemble des performances · tous pays"],
+  '/': ['Tableau de bord', "Vue d'ensemble des performances"],
   '/pays': ['Pays', 'Pays actifs sur la plateforme MamaGo'],
+  '/interface': ['Interface pays', "Générer l'interface d'administration d'un pays"],
   '/stats': ['Statistiques par pays', 'Analyse détaillée des indicateurs'],
+  '/admin': ['Espace pays', 'Administration des données du pays'],
   '/utilisateurs': ['Utilisateurs', "Gestion des comptes, rôles et droits d'accès"],
   '/parametres': ['Paramètres', 'Thème, activités et configuration'],
 };
@@ -34,9 +38,13 @@ export default function Layout() {
   const loc = useLocation();
   const [notifOpen, setNotifOpen] = useState(false);
 
+  const isSuperAdmin = user?.role === 'SuperAdmin';
+  const navItems = NAV.filter((n) => !n.superAdminOnly || isSuperAdmin);
+
   const activeId = (() => {
     if (loc.pathname === '/') return 'home';
-    if (loc.pathname.startsWith('/pays')) return 'pays';
+    if (loc.pathname.startsWith('/interface')) return 'interface';
+    if (loc.pathname.startsWith('/pays') || loc.pathname.startsWith('/admin')) return 'pays';
     if (loc.pathname.startsWith('/stats')) return 'stat';
     if (loc.pathname.startsWith('/utilisateurs')) return 'users';
     if (loc.pathname.startsWith('/parametres')) return 'settings';
@@ -67,7 +75,7 @@ export default function Layout() {
 
         <div style={{ padding: '4px 14px 8px', fontSize: 10.5, letterSpacing: '.9px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 600 }}>Principal</div>
         <nav style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: '0 12px' }}>
-          {NAV.map((item) => {
+          {navItems.map((item) => {
             const active = item.id === activeId;
             return (
               <button key={item.id} onClick={() => nav(item.path)}
@@ -141,7 +149,7 @@ export default function Layout() {
 
       {/* BOTTOM NAV (mobile) */}
       <nav className="mg-bottomnav" style={{ display: 'none' }}>
-        {NAV.map((item) => {
+        {navItems.map((item) => {
           const active = item.id === activeId;
           return (
             <button key={item.id} onClick={() => nav(item.path)} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', padding: '4px 8px', color: active ? 'var(--green-hi)' : 'var(--muted)' }}>

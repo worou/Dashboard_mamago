@@ -67,8 +67,25 @@ export default function Dashboard() {
         })}
       </div>
 
-      {/* Courbe + donut */}
-      <div className="mg-2col" style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: 16, marginTop: 16 }}>
+      {/* Donut + courbe */}
+      <div className="mg-2col" style={{ display: 'grid', gridTemplateColumns: '1fr 1.6fr', gap: 16, marginTop: 16 }}>
+        <div style={styleObj(S.card)}>
+          <div style={{ fontFamily: 'Sora', fontWeight: 700, fontSize: 16 }}>Répartition du CA</div>
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>Part de chaque pays</div>
+          <div style={{ display: 'flex', justifyContent: 'center', margin: '14px 0 10px' }}>
+            <Donut segs={donutSegs} size={120} centerTop={String(pays.length)} centerBottom="pays" />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+            {shareRows.map((s, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
+                <span style={{ width: 10, height: 10, borderRadius: 3, background: s.color, flexShrink: 0 }} />
+                <span style={{ flex: 1, color: 'var(--text2)' }}>{s.name}</span>
+                <span style={{ fontWeight: 700, fontFamily: 'Space Grotesk' }}>{s.pct}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
         <div style={styleObj(S.card)}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
             <div>
@@ -85,23 +102,6 @@ export default function Dashboard() {
             </div>
           </div>
           <div style={{ marginTop: 16 }}><AreaChart data={chartData} labels={chartLabels} /></div>
-        </div>
-
-        <div style={styleObj(S.card)}>
-          <div style={{ fontFamily: 'Sora', fontWeight: 700, fontSize: 16 }}>Répartition du CA</div>
-          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>Part de chaque pays</div>
-          <div style={{ display: 'flex', justifyContent: 'center', margin: '14px 0 10px' }}>
-            <Donut segs={donutSegs} size={120} centerTop={String(pays.length)} centerBottom="pays" />
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-            {shareRows.map((s, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
-                <span style={{ width: 10, height: 10, borderRadius: 3, background: s.color, flexShrink: 0 }} />
-                <span style={{ flex: 1, color: 'var(--text2)' }}>{s.name}</span>
-                <span style={{ fontWeight: 700, fontFamily: 'Space Grotesk' }}>{s.pct}</span>
-              </div>
-            ))}
-          </div>
         </div>
       </div>
 

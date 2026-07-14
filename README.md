@@ -35,7 +35,7 @@ leurs paiements, et **3 comptes de test** (mot de passe : `password`) :
 - **API** : `http://localhost/mamago/api`
 - **Documentation Swagger** : `http://localhost/mamago/swagger/`
 
-## Authentification
+## Authentification et cloisonnement par pays
 
 `POST /auth/login` renvoie un jeton **Bearer** (HMAC-SHA256, valable 8 h).
 
@@ -45,9 +45,40 @@ curl -X POST http://localhost/mamago/api/auth/login \
   -d '{"email":"admin@mamago.com","mot_de_passe":"password"}'
 ```
 
-Les **lectures** (GET) sont ouvertes pour faciliter l'intégration.
-Les **écritures sensibles** (pays, services, rôles, droits, utilisateurs)
-exigent l'en-tête `Authorization: Bearer <token>`.
+**Toutes les routes** (sauf `/health` et `/auth/login`) exigent l'en-tête
+`Authorization: Bearer <token>`. Le **périmètre** de l'utilisateur en est
+déduit côté serveur — le cloisonnement est appliqué par l'**API**, pas
+seulement par l'interface :
+
+| Rôle | Portée |
+|------|--------|
+| **SuperAdmin** | Accès total. Seul habilité à créer un pays et à gérer utilisateurs / rôles / droits. |
+| **Admin Pays** | Lecture **et écriture** limitées à ses pays (table `utilisateur_pays`). Hors périmètre → **403**. |
+| **Commercial** | **Lecture seule** sur ses pays. Toute écriture → **403**. |
+
+## Interface admin par pays (générée dynamiquement)
+
+Chaque pays présent en base dispose automatiquement de son **espace
+d'administration** (`/admin/:paysId` côté front) : villes, livreurs, clients
+et courses, en CRUD complet — le tout cloisonné au pays.
+
+À la création d'un pays, l'API peut **provisionner son compte Admin Pays** :
+
+```bash
+curl -X POST http://localhost/mamago/api/pays \
+  -H "Authorization: Bearer <token-superadmin>" \
+  -H "Content-Type: application/json" \
+  -d '{
+        "nom_pays":"Niger", "code_iso":"NE", "devise":"XOF",
+        "creer_admin": true,
+        "admin": {"nom":"Souley","prenom":"Hadiza","mot_de_passe":"secret123"}
+      }'
+```
+
+L'opération est **transactionnelle** : elle crée le pays, le compte
+`Admin Pays` (email généré en `admin.ne@mamago.com` si non fourni) et son
+rattachement au périmètre. Le nouvel admin peut se connecter immédiatement et
+ne voit **que son pays**.
 
 ## Conventions
 
@@ -66,8 +97,11 @@ exigent l'en-tête `Authorization: Bearer <token>`.
 |---------|-------|------|
 | POST | `/auth/login` | Connexion |
 | GET | `/auth/me` | Profil courant |
-| GET | `/dashboard` | CA global + pays (CA, évolution) |
-| GET | `/pays`, `/pays/{id}` | Liste / détail pays |
+| GET | `/dashboard` | CA global + pays (CA, évolution) — cloisonné |
+| GET | `/stats/evolution` | Série mensuelle du CA (courbe + sparklines) |
+| GET | `/pays`, `/pays/{id}` | Liste / détail pays — cloisonné |
+| POST | `/pays` | Créer un pays **+ provisionner son admin** (SuperAdmin) |
+| CRUD | `/villes` | Villes de l'espace pays — cloisonné |
 | GET | `/pays/{id}/stats` | CA ville+service, évolution clients, paiements, livreurs |
 | GET | `/stats/paiements` | Répartition par type de paiement |
 | GET | `/villes`, `/services` | Référentiel |

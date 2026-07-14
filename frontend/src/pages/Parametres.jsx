@@ -25,12 +25,11 @@ const dot = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none"><circle
 export default function Parametres() {
   const { theme, setTheme, accent, setAccent, accents, rgba } = useTheme();
 
+  // /connexions renvoie deja le nom de l'utilisateur (la liste /utilisateurs
+  // est reservee au SuperAdmin). Les activites sont cloisonnees cote API :
+  // un SuperAdmin voit tout, les autres ne voient que les leurs.
   const { loading, error, data, reload } = useFetch(
-    () => Promise.all([api.connexions({ per_page: 20 }), api.utilisateurs()]).then(([c, users]) => {
-      const byId = {};
-      users.forEach((u) => { byId[u.id] = `${u.prenom} ${u.nom}`; });
-      return { activities: c.data || [], names: byId };
-    }),
+    () => api.connexions({ per_page: 20 }).then((c) => ({ activities: c.data || [] })),
     []
   );
 
@@ -97,7 +96,7 @@ export default function Parametres() {
             <div style={{ display: 'flex', flexDirection: 'column' }}>
               {data.activities.map((a) => {
                 const m = metaFor(a.action);
-                const name = data.names[a.utilisateur_id] || 'Utilisateur #' + a.utilisateur_id;
+                const name = a.utilisateur || 'Utilisateur #' + a.utilisateur_id;
                 return (
                   <div key={a.id} style={{ display: 'flex', gap: 13, padding: '13px 0', borderTop: '1px solid var(--border)' }}>
                     <span style={{ width: 34, height: 34, borderRadius: 9, background: m.tint[0], color: m.tint[1], display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }} dangerouslySetInnerHTML={html(icHtml(m.icon, 17))} />

@@ -14,18 +14,41 @@ class ClientsController
         );
     }
 
+    // Pays d'un client existant (via sa ville) — pour le controle d'acces.
+    private function paysOfClient($id): ?int
+    {
+        $stmt = Database::pdo()->prepare(
+            'SELECT v.pays_id FROM clients c JOIN villes v ON v.id = c.ville_id WHERE c.id = ?'
+        );
+        $stmt->execute([$id]);
+        $p = $stmt->fetchColumn();
+        return $p === false ? null : (int) $p;
+    }
+
+    private function paysOfVille($villeId): ?int
+    {
+        $stmt = Database::pdo()->prepare('SELECT pays_id FROM villes WHERE id = ?');
+        $stmt->execute([$villeId]);
+        $p = $stmt->fetchColumn();
+        return $p === false ? null : (int) $p;
+    }
+
     public function index(Request $req): void
     {
         $where  = [];
         $params = [];
         if ($v = $req->queryParam('ville_id'))  { $where[] = 'c.ville_id = ?'; $params[] = $v; }
-        if ($p = $req->queryParam('pays_id'))   { $where[] = 'v.pays_id = ?';  $params[] = $p; }
+        if ($p = $req->queryParam('pays_id'))   {
+            Auth::requirePaysAccess($req, (int) $p);
+            $where[] = 'v.pays_id = ?';  $params[] = $p;
+        }
         if ($s = $req->queryParam('statut'))    { $where[] = 'c.statut = ?';   $params[] = $s; }
         if ($q = $req->queryParam('q')) {
             $where[] = '(c.nom LIKE ? OR c.prenom LIKE ? OR c.email LIKE ? OR c.telephone LIKE ?)';
             array_push($params, "%$q%", "%$q%", "%$q%", "%$q%");
         }
-        $whereSql = $where ? ' WHERE ' . implode(' AND ', $where) : '';
+        $scopeSql = Auth::paysScopeSql($req, 'v.pays_id');
+        $whereSql = ' WHERE 1 = 1' . $scopeSql . ($where ? ' AND ' . implode(' AND ', $where) : '');
 
         $page    = max(1, (int) $req->queryParam('page', 1));
         $perPage = min(200, max(1, (int) $req->queryParam('per_page', 25)));
@@ -53,16 +76,21 @@ class ClientsController
 
     public function show(Request $req, array $params): void
     {
-        $c = $this->model()->find($params['id']);
-        if (!$c) { Response::error('Client introuvable.', 404); }
-        Response::ok($c);
+        $pays = $this->paysOfClient($params['id']);
+        if ($pays === null) { Response::error('Client introuvable.', 404); }
+        Auth::requirePaysAccess($req, $pays);
+        Response::ok($this->model()->find($params['id']));
     }
 
     public function store(Request $req): void
     {
+        Auth::requireWrite($req);
         foreach (['ville_id', 'nom', 'prenom', 'date_inscription'] as $f) {
             if (empty($req->input($f))) { Response::error("Champ obligatoire manquant : $f", 422); }
         }
+        $pays = $this->paysOfVille($req->input('ville_id'));
+        if ($pays === null) { Response::error('Ville invalide.', 422); }
+        Auth::requirePaysAccess($req, $pays);
         try {
             Response::ok($this->model()->create($req->body()), 201);
         } catch (PDOException $e) {
@@ -72,9 +100,19 @@ class ClientsController
 
     public function update(Request $req, array $params): void
     {
-        if (!$this->model()->find($params['id'])) { Response::error('Client introuvable.', 404); }
+        Auth::requireWrite($req);
+        $pays = $this->paysOfClient($params['id']);
+        if ($pays === null) { Response::error('Client introuvable.', 404); }
+        Auth::requirePaysAccess($req, $pays);
+
+        $b = $req->body();
+        if (isset($b['ville_id'])) {
+            $cible = $this->paysOfVille($b['ville_id']);
+            if ($cible === null) { Response::error('Ville invalide.', 422); }
+            Auth::requirePaysAccess($req, $cible);
+        }
         try {
-            Response::ok($this->model()->update($params['id'], $req->body()));
+            Response::ok($this->model()->update($params['id'], $b));
         } catch (PDOException $e) {
             Response::error($this->dbError($e), 422);
         }
@@ -82,7 +120,10 @@ class ClientsController
 
     public function destroy(Request $req, array $params): void
     {
-        if (!$this->model()->find($params['id'])) { Response::error('Client introuvable.', 404); }
+        Auth::requireWrite($req);
+        $pays = $this->paysOfClient($params['id']);
+        if ($pays === null) { Response::error('Client introuvable.', 404); }
+        Auth::requirePaysAccess($req, $pays);
         try {
             $this->model()->delete($params['id']);
         } catch (PDOException $e) {

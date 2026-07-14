@@ -11,15 +11,19 @@ class DashboardController
         $pdo = Database::pdo();
         $p   = Period::fromRequest($req);
 
-        // --- Indicateurs globaux (sur la periode) ---
+        // Cloisonnement : un Admin Pays ne voit que ses pays.
+        $sc = Auth::paysScopeSql($req, 'v.pays_id');   // pour les requetes jointes a villes
+        $sp = Auth::paysScopeSql($req, 'p.id');        // pour la table pays
+
+        // --- Indicateurs (sur la periode, dans le perimetre) ---
         $caGlobal = (float) $this->scalar(
-            "SELECT COALESCE(SUM(montant),0) FROM courses
-             WHERE statut = 'terminee' AND date_course BETWEEN ? AND ?",
+            "SELECT COALESCE(SUM(co.montant),0) FROM courses co JOIN villes v ON v.id = co.ville_id
+             WHERE co.statut = 'terminee' AND co.date_course BETWEEN ? AND ? $sc",
             [$p->from, $p->to]
         );
         $caPrev = (float) $this->scalar(
-            "SELECT COALESCE(SUM(montant),0) FROM courses
-             WHERE statut = 'terminee' AND date_course BETWEEN ? AND ?",
+            "SELECT COALESCE(SUM(co.montant),0) FROM courses co JOIN villes v ON v.id = co.ville_id
+             WHERE co.statut = 'terminee' AND co.date_course BETWEEN ? AND ? $sc",
             [$p->prevFrom, $p->prevTo]
         );
 
@@ -27,12 +31,17 @@ class DashboardController
             'ca_global'      => round($caGlobal, 2),
             'ca_precedent'   => round($caPrev, 2),
             'evolution_pct'  => Period::evolution($caGlobal, $caPrev),
-            'nb_pays'        => (int) $this->scalar('SELECT COUNT(*) FROM pays'),
-            'nb_villes'      => (int) $this->scalar('SELECT COUNT(*) FROM villes'),
-            'nb_clients'     => (int) $this->scalar('SELECT COUNT(*) FROM clients'),
-            'nb_livreurs'    => (int) $this->scalar('SELECT COUNT(*) FROM livreurs'),
+            'nb_pays'        => (int) $this->scalar("SELECT COUNT(*) FROM pays p WHERE 1=1 $sp"),
+            'nb_villes'      => (int) $this->scalar("SELECT COUNT(*) FROM villes v WHERE 1=1 $sc"),
+            'nb_clients'     => (int) $this->scalar(
+                "SELECT COUNT(*) FROM clients c JOIN villes v ON v.id = c.ville_id WHERE 1=1 $sc"
+            ),
+            'nb_livreurs'    => (int) $this->scalar(
+                "SELECT COUNT(*) FROM livreurs l JOIN villes v ON v.id = l.ville_id WHERE 1=1 $sc"
+            ),
             'nb_courses'     => (int) $this->scalar(
-                "SELECT COUNT(*) FROM courses WHERE statut='terminee' AND date_course BETWEEN ? AND ?",
+                "SELECT COUNT(*) FROM courses co JOIN villes v ON v.id = co.ville_id
+                 WHERE co.statut='terminee' AND co.date_course BETWEEN ? AND ? $sc",
                 [$p->from, $p->to]
             ),
         ];
@@ -60,6 +69,7 @@ class DashboardController
                 WHERE co.statut='terminee' AND co.date_course BETWEEN ? AND ?
                 GROUP BY v.pays_id
              ) prev ON prev.pays_id = p.id
+             WHERE 1 = 1 $sp
              ORDER BY ca DESC"
         );
         $stmt->execute([$p->from, $p->to, $p->prevFrom, $p->prevTo]);

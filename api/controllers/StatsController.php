@@ -16,6 +16,8 @@ class StatsController
         $paysId = (int) $params['id'];
         $p = Period::fromRequest($req);
 
+        Auth::requirePaysAccess($req, $paysId);
+
         $pays = (new Model('pays', casts: ['id' => 'int', 'ca_global' => 'float']))->find($paysId);
         if (!$pays) {
             Response::error('Pays introuvable.', 404);
@@ -208,11 +210,13 @@ class StatsController
         $labels = Period::lastMonths($months);
         $start  = $labels[0] . '-01 00:00:00';
         $pdo = Database::pdo();
+        $sc  = Auth::paysScopeSql($req, 'v.pays_id');
 
-        // Serie globale
+        // Serie globale (dans le perimetre de l'utilisateur)
         $g = $pdo->prepare(
-            "SELECT DATE_FORMAT(date_course,'%Y-%m') mois, SUM(montant) ca, COUNT(*) nb
-             FROM courses WHERE statut='terminee' AND date_course >= ?
+            "SELECT DATE_FORMAT(co.date_course,'%Y-%m') mois, SUM(co.montant) ca, COUNT(*) nb
+             FROM courses co JOIN villes v ON v.id = co.ville_id
+             WHERE co.statut='terminee' AND co.date_course >= ? $sc
              GROUP BY mois"
         );
         $g->execute([$start]);
@@ -228,7 +232,7 @@ class StatsController
         $p = $pdo->prepare(
             "SELECT v.pays_id, DATE_FORMAT(co.date_course,'%Y-%m') mois, SUM(co.montant) ca
              FROM courses co JOIN villes v ON v.id = co.ville_id
-             WHERE co.statut='terminee' AND co.date_course >= ?
+             WHERE co.statut='terminee' AND co.date_course >= ? $sc
              GROUP BY v.pays_id, mois"
         );
         $p->execute([$start]);
@@ -247,14 +251,16 @@ class StatsController
     {
         $p       = Period::fromRequest($req);
         $paysId  = $req->queryParam('pays_id');
+        $scope   = Auth::paysScopeSql($req, 'v.pays_id');
         $sql = "SELECT pa.type_paiement AS type,
                        COALESCE(SUM(pa.montant),0) AS montant, COUNT(*) AS nb
                 FROM paiements pa
                 JOIN courses co ON co.id = pa.course_id
                 JOIN villes v   ON v.id = co.ville_id
-                WHERE pa.statut='valide' AND pa.date_paiement BETWEEN ? AND ?";
+                WHERE pa.statut='valide' AND pa.date_paiement BETWEEN ? AND ? $scope";
         $args = [$p->from, $p->to];
         if ($paysId) {
+            Auth::requirePaysAccess($req, (int) $paysId);
             $sql   .= ' AND v.pays_id = ?';
             $args[] = $paysId;
         }

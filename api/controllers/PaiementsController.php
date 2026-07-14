@@ -20,10 +20,14 @@ class PaiementsController
         $params = [];
         if ($t = $req->queryParam('type'))    { $where[] = 'pa.type_paiement = ?'; $params[] = $t; }
         if ($s = $req->queryParam('statut'))  { $where[] = 'pa.statut = ?';        $params[] = $s; }
-        if ($p = $req->queryParam('pays_id')) { $where[] = 'v.pays_id = ?';        $params[] = $p; }
+        if ($p = $req->queryParam('pays_id')) {
+            Auth::requirePaysAccess($req, (int) $p);
+            $where[] = 'v.pays_id = ?';        $params[] = $p;
+        }
         if ($f = $req->queryParam('from'))    { $where[] = 'pa.date_paiement >= ?'; $params[] = $f . ' 00:00:00'; }
         if ($to = $req->queryParam('to'))     { $where[] = 'pa.date_paiement <= ?'; $params[] = $to . ' 23:59:59'; }
-        $whereSql = $where ? ' WHERE ' . implode(' AND ', $where) : '';
+        $scopeSql = Auth::paysScopeSql($req, 'v.pays_id');
+        $whereSql = ' WHERE 1 = 1' . $scopeSql . ($where ? ' AND ' . implode(' AND ', $where) : '');
 
         $page    = max(1, (int) $req->queryParam('page', 1));
         $perPage = min(200, max(1, (int) $req->queryParam('per_page', 25)));
@@ -54,20 +58,48 @@ class PaiementsController
         Response::paginated($items, $total, $page, $perPage);
     }
 
+    // Pays d'un paiement (via sa course) et pays d'une course.
+    private function paysOfPaiement($id): ?int
+    {
+        $stmt = Database::pdo()->prepare(
+            'SELECT v.pays_id FROM paiements pa
+             JOIN courses co ON co.id = pa.course_id
+             JOIN villes v   ON v.id = co.ville_id WHERE pa.id = ?'
+        );
+        $stmt->execute([$id]);
+        $p = $stmt->fetchColumn();
+        return $p === false ? null : (int) $p;
+    }
+
+    private function paysOfCourse($courseId): ?int
+    {
+        $stmt = Database::pdo()->prepare(
+            'SELECT v.pays_id FROM courses co JOIN villes v ON v.id = co.ville_id WHERE co.id = ?'
+        );
+        $stmt->execute([$courseId]);
+        $p = $stmt->fetchColumn();
+        return $p === false ? null : (int) $p;
+    }
+
     public function show(Request $req, array $params): void
     {
-        $p = $this->model()->find($params['id']);
-        if (!$p) { Response::error('Paiement introuvable.', 404); }
-        Response::ok($p);
+        $pays = $this->paysOfPaiement($params['id']);
+        if ($pays === null) { Response::error('Paiement introuvable.', 404); }
+        Auth::requirePaysAccess($req, $pays);
+        Response::ok($this->model()->find($params['id']));
     }
 
     public function store(Request $req): void
     {
+        Auth::requireWrite($req);
         foreach (['course_id', 'type_paiement', 'montant', 'date_paiement'] as $f) {
             if ($req->input($f) === null || $req->input($f) === '') {
                 Response::error("Champ obligatoire manquant : $f", 422);
             }
         }
+        $pays = $this->paysOfCourse($req->input('course_id'));
+        if ($pays === null) { Response::error('Course invalide.', 422); }
+        Auth::requirePaysAccess($req, $pays);
         try {
             Response::ok($this->model()->create($req->body()), 201);
         } catch (PDOException $e) {
@@ -80,13 +112,19 @@ class PaiementsController
 
     public function update(Request $req, array $params): void
     {
-        if (!$this->model()->find($params['id'])) { Response::error('Paiement introuvable.', 404); }
+        Auth::requireWrite($req);
+        $pays = $this->paysOfPaiement($params['id']);
+        if ($pays === null) { Response::error('Paiement introuvable.', 404); }
+        Auth::requirePaysAccess($req, $pays);
         Response::ok($this->model()->update($params['id'], $req->body()));
     }
 
     public function destroy(Request $req, array $params): void
     {
-        if (!$this->model()->find($params['id'])) { Response::error('Paiement introuvable.', 404); }
+        Auth::requireWrite($req);
+        $pays = $this->paysOfPaiement($params['id']);
+        if ($pays === null) { Response::error('Paiement introuvable.', 404); }
+        Auth::requirePaysAccess($req, $pays);
         $this->model()->delete($params['id']);
         Response::noContent();
     }

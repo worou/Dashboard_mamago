@@ -33,10 +33,22 @@ VITE_API_URL=http://mon-serveur/mamago/api
 | Route | Écran | Données |
 |-------|-------|---------|
 | `/` | Dashboard | `GET /dashboard`, `GET /stats/evolution` (KPIs, courbe CA, donut, tableau pays) |
-| `/pays` | Pays | cartes par pays, recherche, tri, ajout (`POST /pays`) |
-| `/stats/:id` | Stat par pays | `GET /pays/{id}/stats` : CA ville/service, évolution clients, paiements, livreurs + export CSV/PDF |
-| `/utilisateurs` | Utilisateurs | `GET/POST/PUT/DELETE /utilisateurs`, cartes de rôles, filtres |
+| `/pays` | Pays | cartes par pays, recherche, tri, création (pays **+ son admin**) |
+| `/admin/:id` | **Espace pays** | CRUD villes / livreurs / clients / courses, cloisonné au pays |
+| `/stats/:id` | Stat par pays | `GET /pays/{id}/stats` : CA ville/service, évolution clients, paiements, livreurs + export CSV/PDF (période 7 j / 1 mois / 2 mois) |
+| `/utilisateurs` | Utilisateurs | `GET/POST/PUT/DELETE /utilisateurs`, cartes de rôles (SuperAdmin uniquement) |
 | `/parametres` | Paramètres | thème/accent + activités (`GET /connexions`) |
+
+### Espace admin par pays
+
+Chaque pays de la base obtient **automatiquement** son espace
+(`/admin/:paysId`) — rien n'est codé en dur. Depuis la page **Pays**, le
+bouton **« Gérer l'espace »** y mène. Le SuperAdmin peut créer un pays *et*
+provisionner son compte **Admin Pays** dans le même formulaire.
+
+L'interface s'adapte au rôle (menu, boutons), mais **c'est l'API qui fait
+foi** : un Admin Pays reçoit un **403** sur tout pays hors de son périmètre,
+et un Commercial sur toute écriture.
 
 Le tableau de bord et les stats utilisent une **fenêtre glissante de 30 jours**
 par défaut (évite le biais d'un mois calendaire en cours partiel).

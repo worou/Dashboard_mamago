@@ -37,7 +37,7 @@ class RolesController
 
     public function store(Request $req): void
     {
-        Auth::requireAuth($req);
+        Auth::requireSuperAdmin($req);
         if (empty($req->input('libelle_role'))) {
             Response::error('libelle_role requis.', 422);
         }
@@ -52,7 +52,7 @@ class RolesController
 
     public function update(Request $req, array $params): void
     {
-        Auth::requireAuth($req);
+        Auth::requireSuperAdmin($req);
         $model = new Model('roles', ['libelle_role']);
         if (!$model->find($params['id'])) {
             Response::error('Role introuvable.', 404);
@@ -62,7 +62,7 @@ class RolesController
 
     public function destroy(Request $req, array $params): void
     {
-        Auth::requireAuth($req);
+        Auth::requireSuperAdmin($req);
         $model = new Model('roles');
         if (!$model->find($params['id'])) {
             Response::error('Role introuvable.', 404);
@@ -78,7 +78,7 @@ class RolesController
     // PUT /roles/{id}/droits   body: { "droit_ids": [1,2,3] }
     public function syncDroits(Request $req, array $params): void
     {
-        Auth::requireAuth($req);
+        Auth::requireSuperAdmin($req);
         if (!(new Model('roles'))->find($params['id'])) {
             Response::error('Role introuvable.', 404);
         }

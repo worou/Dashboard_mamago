@@ -15,6 +15,7 @@ class RapportsController
         $where  = [];
         $params = [];
         if ($pid = $req->queryParam('pays_id')) {
+            Auth::requirePaysAccess($req, (int) $pid);
             $where[] = 'r.pays_id = ?';
             $params[] = $pid;
         }
@@ -22,9 +23,8 @@ class RapportsController
             $where[] = 'r.utilisateur_id = ?';
             $params[] = $uid;
         }
-        if ($where) {
-            $sql .= ' WHERE ' . implode(' AND ', $where);
-        }
+        $scope = Auth::paysScopeSql($req, 'r.pays_id');
+        $sql .= ' WHERE 1 = 1' . $scope . ($where ? ' AND ' . implode(' AND ', $where) : '');
         $sql .= ' ORDER BY r.date_generation DESC';
 
         $stmt = Database::pdo()->prepare($sql);
@@ -45,6 +45,7 @@ class RapportsController
         if (!in_array($type, ['csv', 'pdf'], true)) {
             Response::error("Type d'export invalide (csv ou pdf).", 422);
         }
+        Auth::requirePaysAccess($req, $paysId);
 
         $pays = (new Model('pays'))->find($paysId);
         if (!$pays) {

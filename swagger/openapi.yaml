@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: MamaGo API - Manager Word par pays
-  version: "1.0"
+  version: "1.1"
   description: >
     API REST du module d'administration MamaGo : indicateurs de performance
     par pays (CA, clients, livreurs, paiements), gestion des utilisateurs,
@@ -10,8 +10,26 @@ info:
 
     **Authentification** : `POST /auth/login` renvoie un jeton Bearer.
     Cliquez sur **Authorize** et collez le jeton.
-    Les lectures sont ouvertes ; les ecritures sensibles (pays, roles,
-    utilisateurs, droits) exigent le jeton.
+    **Toutes les routes** (sauf `/health` et `/auth/login`) exigent ce jeton :
+    le perimetre de l'utilisateur en est deduit cote serveur.
+
+
+    **Cloisonnement par pays** (applique cote API) :
+
+    - `SuperAdmin` : acces total, seul habilite a creer un pays, gerer les
+      utilisateurs, roles et droits.
+
+    - `Admin Pays` : lecture **et ecriture** limitees aux pays de son
+      perimetre (table `utilisateur_pays`). Toute requete hors perimetre
+      renvoie **403**.
+
+    - `Commercial` : **lecture seule** sur les pays de son perimetre.
+
+
+    **Interface admin par pays** : `POST /pays` avec `creer_admin: true`
+    cree le pays **et** provisionne son compte `Admin Pays`, rattache au
+    perimetre du pays. Le nouvel espace d'administration est immediatement
+    disponible pour ce pays.
 
 
     **CA - source de verite** : somme de `courses.montant` des courses au
@@ -21,6 +39,10 @@ info:
 servers:
   - url: /mamago/api
     description: XAMPP local (Apache)
+
+# Jeton requis par defaut sur toutes les routes.
+security:
+  - bearerAuth: []
 
 tags:
   - name: Auth
@@ -116,21 +138,60 @@ paths:
   /pays:
     get:
       tags: [Pays]
-      summary: Liste des pays
+      summary: Liste des pays (limitee au perimetre de l'utilisateur)
+      description: >
+        Un SuperAdmin recoit tous les pays ; un Admin Pays / Commercial ne
+        recoit que ceux de son perimetre.
       responses:
         "200": { description: Liste }
     post:
       tags: [Pays]
-      summary: Creer un pays
-      security: [{ bearerAuth: [] }]
+      summary: Creer un pays (+ provisionner son interface admin)
+      description: >
+        Reserve au **SuperAdmin**. Avec `creer_admin: true`, l'API cree en
+        plus le compte **Admin Pays** et le rattache au perimetre du pays :
+        l'espace d'administration de ce pays devient immediatement
+        utilisable. Si `admin.email` est vide, il est genere automatiquement
+        sous la forme `admin.<code_iso>@mamago.com`. Operation transactionnelle.
       requestBody:
         required: true
         content:
           application/json:
             schema: { $ref: "#/components/schemas/PaysInput" }
+            examples:
+              avecAdmin:
+                summary: Pays + interface admin provisionnee
+                value:
+                  nom_pays: Niger
+                  code_iso: NE
+                  devise: XOF
+                  creer_admin: true
+                  admin:
+                    nom: Souley
+                    prenom: Hadiza
+                    mot_de_passe: secret123
+              sansAdmin:
+                summary: Pays seul
+                value: { nom_pays: Niger, code_iso: NE, devise: XOF }
       responses:
-        "201": { description: Cree }
+        "201":
+          description: Pays cree (avec son admin si demande)
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Success"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          pays: { type: object }
+                          admin:
+                            nullable: true
+                            $ref: "#/components/schemas/Utilisateur"
         "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
   /pays/{id}:
     parameters: [{ $ref: "#/components/parameters/id" }]
@@ -195,6 +256,49 @@ paths:
         - { $ref: "#/components/parameters/to" }
       responses:
         "200": { description: Repartition }
+        "403": { $ref: "#/components/responses/Error" }
+
+  /stats/evolution:
+    get:
+      tags: [Stats]
+      summary: Serie mensuelle du CA (globale + par pays)
+      description: >
+        Alimente la courbe d'evolution du dashboard et les sparklines.
+        Cloisonnee : ne couvre que les pays du perimetre de l'utilisateur.
+      parameters:
+        - name: months
+          in: query
+          schema: { type: integer, default: 12, maximum: 24 }
+      responses:
+        "200":
+          description: Serie mensuelle
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Success"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          labels:
+                            type: array
+                            items: { type: string, example: "2026-06" }
+                          global:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                mois: { type: string }
+                                ca: { type: number }
+                                nb_courses: { type: integer }
+                          par_pays:
+                            type: object
+                            description: "Cle = id du pays, valeur = CA de chaque mois."
+                            additionalProperties:
+                              type: array
+                              items: { type: number }
 
   /villes:
     get:
@@ -599,10 +703,23 @@ components:
       type: object
       required: [nom_pays]
       properties:
-        nom_pays: { type: string, example: Cote d'Ivoire }
-        code_iso: { type: string, example: CI }
+        nom_pays: { type: string, example: Niger }
+        code_iso: { type: string, example: NE }
         devise: { type: string, example: XOF }
-        ca_global: { type: number }
+        creer_admin:
+          type: boolean
+          description: Provisionne le compte "Admin Pays" et son espace d'administration.
+        admin:
+          type: object
+          description: Requis si creer_admin = true.
+          required: [nom, prenom, mot_de_passe]
+          properties:
+            nom: { type: string }
+            prenom: { type: string }
+            email:
+              type: string
+              description: Optionnel — genere en admin.<code_iso>@mamago.com si vide.
+            mot_de_passe: { type: string }
     PaysDashboard:
       type: object
       properties:

@@ -1,4 +1,6 @@
 // Client API MamaGo — enveloppe fetch avec jeton Bearer.
+// Toutes les routes (hors /health et /auth/login) exigent le jeton :
+// le perimetre pays de l'utilisateur en est deduit cote serveur.
 
 const BASE = import.meta.env.VITE_API_URL || 'http://localhost/mamago/api';
 
@@ -9,11 +11,16 @@ export const setToken = (t) => (t ? localStorage.setItem(TOKEN_KEY, t) : localSt
 let onUnauthorized = null;
 export const setUnauthorizedHandler = (fn) => { onUnauthorized = fn; };
 
-async function request(path, { method = 'GET', body, auth = true } = {}) {
-  const headers = {};
-  if (body !== undefined) headers['Content-Type'] = 'application/json';
+function authHeaders(extra = {}) {
+  const h = { ...extra };
   const token = getToken();
-  if (auth && token) headers['Authorization'] = 'Bearer ' + token;
+  if (token) h['Authorization'] = 'Bearer ' + token;
+  return h;
+}
+
+async function request(path, { method = 'GET', body, auth = true, full = false } = {}) {
+  const headers = authHeaders(body !== undefined ? { 'Content-Type': 'application/json' } : {});
+  if (!auth) delete headers['Authorization'];
 
   const res = await fetch(BASE + path, {
     method,
@@ -21,6 +28,7 @@ async function request(path, { method = 'GET', body, auth = true } = {}) {
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 
+  // 401 = jeton absent/expire -> deconnexion. 403 = hors perimetre -> on laisse remonter.
   if (res.status === 401 && onUnauthorized) onUnauthorized();
   if (res.status === 204) return null;
 
@@ -28,22 +36,9 @@ async function request(path, { method = 'GET', body, auth = true } = {}) {
   try { json = await res.json(); } catch { /* reponse non-JSON */ }
 
   if (!res.ok) {
-    const msg = (json && json.error) || 'Erreur ' + res.status;
-    throw new Error(msg);
+    throw new Error((json && json.error) || 'Erreur ' + res.status);
   }
-  return json ? json.data : null;
-}
-
-// Renvoie l'objet complet (data + meta) — utile pour la pagination.
-async function requestFull(path) {
-  const token = getToken();
-  const res = await fetch(BASE + path, {
-    headers: token ? { Authorization: 'Bearer ' + token } : {},
-  });
-  if (res.status === 401 && onUnauthorized) onUnauthorized();
-  const json = await res.json();
-  if (!res.ok) throw new Error((json && json.error) || 'Erreur ' + res.status);
-  return json;
+  return full ? json : (json ? json.data : null);
 }
 
 const qs = (params = {}) => {
@@ -55,28 +50,75 @@ const qs = (params = {}) => {
   return s ? '?' + s : '';
 };
 
+// Telechargement authentifie (l'export exige le jeton : une simple
+// navigation window.open n'enverrait pas l'entete Authorization).
+async function download(path, fallbackName) {
+  const res = await fetch(BASE + path, { headers: authHeaders() });
+  if (res.status === 401 && onUnauthorized) onUnauthorized();
+  if (!res.ok) {
+    let msg = 'Export impossible';
+    try { msg = (await res.json()).error || msg; } catch { /* ignore */ }
+    throw new Error(msg);
+  }
+
+  // Nom de fichier propose par le serveur (Content-Disposition)
+  const cd = res.headers.get('Content-Disposition') || '';
+  const m = /filename="?([^"]+)"?/.exec(cd);
+  const name = m ? m[1] : fallbackName;
+
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+const crud = (resource) => ({
+  list: (params) => request('/' + resource + qs(params)),
+  create: (body) => request('/' + resource, { method: 'POST', body }),
+  update: (id, body) => request('/' + resource + '/' + id, { method: 'PUT', body }),
+  remove: (id) => request('/' + resource + '/' + id, { method: 'DELETE' }),
+});
+
 export const api = {
   base: BASE,
   qs,
+
   // Auth
   login: (email, mot_de_passe) => request('/auth/login', { method: 'POST', body: { email, mot_de_passe }, auth: false }),
   me: () => request('/auth/me'),
 
-  // Dashboard & stats
+  // Dashboard & stats (cloisonnes par le jeton)
   dashboard: (params) => request('/dashboard' + qs(params)),
   evolution: (params) => request('/stats/evolution' + qs(params)),
   paysStats: (id, params) => request('/pays/' + id + '/stats' + qs(params)),
   paiementStats: (params) => request('/stats/paiements' + qs(params)),
 
-  // Referentiel / entites
+  // Pays — createPays cree aussi le compte "Admin Pays" si creer_admin=true
   pays: (params) => request('/pays' + qs(params)),
+  paysOne: (id) => request('/pays/' + id),
   createPays: (body) => request('/pays', { method: 'POST', body }),
-  villes: (params) => request('/villes' + qs(params)),
-  livreurs: (params) => request('/livreurs' + qs(params)),
-  courses: (params) => requestFull('/courses' + qs(params)),
-  clients: (params) => requestFull('/clients' + qs(params)),
+  updatePays: (id, body) => request('/pays/' + id, { method: 'PUT', body }),
+  deletePays: (id) => request('/pays/' + id, { method: 'DELETE' }),
 
-  // Administration
+  // Ressources de l'espace pays
+  villes: crud('villes'),
+  livreurs: crud('livreurs'),
+  clients: {
+    ...crud('clients'),
+    list: (params) => request('/clients' + qs(params), { full: true }), // pagine
+  },
+  courses: {
+    ...crud('courses'),
+    list: (params) => request('/courses' + qs(params), { full: true }), // pagine
+  },
+  services: () => request('/services'),
+
+  // Administration (SuperAdmin)
   utilisateurs: (params) => request('/utilisateurs' + qs(params)),
   createUtilisateur: (body) => request('/utilisateurs', { method: 'POST', body }),
   updateUtilisateur: (id, body) => request('/utilisateurs/' + id, { method: 'PUT', body }),
@@ -84,8 +126,8 @@ export const api = {
   roles: () => request('/roles'),
 
   // Tracabilite
-  connexions: (params) => requestFull('/connexions' + qs(params)),
+  connexions: (params) => request('/connexions' + qs(params), { full: true }),
 
-  // URL d'export (telechargement direct dans le navigateur)
-  exportUrl: (params) => BASE + '/rapports/export' + qs(params),
+  // Export authentifie (CSV / PDF)
+  exportRapport: (params) => download('/rapports/export' + qs(params), 'rapport.' + (params.type || 'csv')),
 };

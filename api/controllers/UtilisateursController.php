@@ -16,6 +16,7 @@ class UtilisateursController
 
     public function index(Request $req): void
     {
+        Auth::requireSuperAdmin($req);
         $sql    = 'SELECT u.*, r.libelle_role AS role FROM utilisateurs u
                    JOIN roles r ON r.id = u.role_id';
         $where  = [];
@@ -40,6 +41,7 @@ class UtilisateursController
 
     public function show(Request $req, array $params): void
     {
+        Auth::requireSuperAdmin($req);
         $stmt = Database::pdo()->prepare('SELECT * FROM utilisateurs WHERE id = ?');
         $stmt->execute([$params['id']]);
         $u = $stmt->fetch();
@@ -53,7 +55,7 @@ class UtilisateursController
 
     public function store(Request $req): void
     {
-        Auth::requireAuth($req);
+        Auth::requireSuperAdmin($req);
         $b = $req->body();
         foreach (['nom', 'prenom', 'email', 'mot_de_passe', 'role_id'] as $f) {
             if (empty($b[$f])) {
@@ -90,7 +92,7 @@ class UtilisateursController
 
     public function update(Request $req, array $params): void
     {
-        Auth::requireAuth($req);
+        Auth::requireSuperAdmin($req);
         $id = $params['id'];
         $stmt = Database::pdo()->prepare('SELECT * FROM utilisateurs WHERE id = ?');
         $stmt->execute([$id]);
@@ -140,7 +142,7 @@ class UtilisateursController
 
     public function destroy(Request $req, array $params): void
     {
-        Auth::requireAuth($req);
+        Auth::requireSuperAdmin($req);
         $stmt = Database::pdo()->prepare('SELECT id FROM utilisateurs WHERE id = ?');
         $stmt->execute([$params['id']]);
         if (!$stmt->fetch()) {

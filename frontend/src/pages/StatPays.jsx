@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useFetch, monthLabel } from '../lib/useFetch';
@@ -18,18 +19,29 @@ const pct = (cur, prev) => {
   return Math.round(((cur - prev) / prev) * 1000) / 10;
 };
 
+// Periodes disponibles pour les statistiques du pays
+const PERIODS = [
+  { label: '7 jours', days: 7 },
+  { label: '1 mois', days: 30 },
+  { label: '2 mois', days: 60 },
+];
+
 export default function StatPays() {
   const { paysId } = useParams();
   const nav = useNavigate();
   const { toast } = useToast();
+  const [days, setDays] = useState(30);
 
   const { loading, error, data, reload } = useFetch(async () => {
     const list = await api.pays();
     const id = Number(paysId) || (list[0] && list[0].id);
     if (!id) return { list: [], stats: null };
-    const [stats, evo] = await Promise.all([api.paysStats(id, { ...lastNDays(30), months: 6 }), api.evolution({ months: 12 })]);
+    const [stats, evo] = await Promise.all([
+      api.paysStats(id, { ...lastNDays(days), months: 6 }),
+      api.evolution({ months: 12 }),
+    ]);
     return { list, id, stats, evo };
-  }, [paysId]);
+  }, [paysId, days]);
 
   if (loading) return <Loader />;
   if (error) return <ErrorBox message={error} onRetry={reload} />;
@@ -59,10 +71,17 @@ export default function StatPays() {
   const serviceSegs = stats.ca_par_service.map((s, i) => ({ v: s.ca, color: CHART_COLORS[i % CHART_COLORS.length] }));
 
   const period = stats.periode;
-  const exportFile = (type) => {
-    const url = api.exportUrl({ pays_id: id, type, from: period.from.slice(0, 10), to: period.to.slice(0, 10) });
-    window.open(url, '_blank');
-    toast('Export ' + type.toUpperCase() + ' — ' + pays.nom_pays);
+  const periodLabel = 'Derniers ' + (PERIODS.find((p) => p.days === days)?.label || days + ' jours');
+
+  // Telechargement authentifie : l'export exige le jeton (une navigation
+  // window.open n'enverrait pas l'entete Authorization).
+  const exportFile = async (type) => {
+    try {
+      await api.exportRapport({ pays_id: id, type, from: period.from.slice(0, 10), to: period.to.slice(0, 10) });
+      toast('Export ' + type.toUpperCase() + ' — ' + pays.nom_pays);
+    } catch (e) {
+      toast(e.message);
+    }
   };
 
   return (
@@ -73,10 +92,24 @@ export default function StatPays() {
           <span style={{ width: 52, height: 52, borderRadius: 14, background: tn[0], color: tn[1], display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Sora', fontWeight: 700, fontSize: 17 }}>{codeFor(pays)}</span>
           <div>
             <div style={{ fontFamily: 'Sora', fontWeight: 700, fontSize: 20 }}>{pays.nom_pays}</div>
-            <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Statistiques détaillées · {stats.ca_par_ville.length} villes · {stats.livreurs.length} livreurs</div>
+            <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>
+              {periodLabel} · {stats.ca_par_ville.length} villes · {stats.livreurs.length} livreurs
+            </div>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          {/* Selecteur de periode */}
+          <div style={{ display: 'flex', gap: 4, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, padding: 3 }}>
+            {PERIODS.map((p) => {
+              const on = days === p.days;
+              return (
+                <button key={p.days} onClick={() => setDays(p.days)}
+                  style={{ fontSize: 12.5, fontWeight: 600, padding: '7px 13px', borderRadius: 7, border: 'none', cursor: 'pointer', background: on ? 'var(--green)' : 'transparent', color: on ? '#04140C' : 'var(--text2)' }}>
+                  {p.label}
+                </button>
+              );
+            })}
+          </div>
           <select value={id} onChange={(ev) => nav('/stats/' + ev.target.value)} style={styleObj('background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:10px 12px;font-size:13px;font-weight:600;cursor:pointer;')}>
             {list.map((c) => <option key={c.id} value={c.id}>{c.nom_pays}</option>)}
           </select>
