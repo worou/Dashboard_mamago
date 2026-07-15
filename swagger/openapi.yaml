@@ -44,7 +44,9 @@ info:
 
 servers:
   - url: /mamago/api
-    description: XAMPP local (Apache)
+    description: XAMPP local (http://localhost/mamago/api)
+  - url: /api
+    description: Serveur de production (meme origine, ex. http://180.149.198.241/api)
 
 # Jeton requis par defaut sur toutes les routes.
 security:

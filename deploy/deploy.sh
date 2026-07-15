@@ -132,6 +132,14 @@ cat > /etc/apache2/sites-available/mamago.conf <<APACHE
         Require all granted
     </Directory>
 
+    # Documentation Swagger sous /swagger
+    Alias /swagger ${APP_DIR}/swagger
+    <Directory ${APP_DIR}/swagger>
+        Options -Indexes +FollowSymLinks
+        AllowOverride All
+        Require all granted
+    </Directory>
+
     # Front React (SPA) — repli vers index.html pour les liens profonds
     <Directory ${APP_DIR}/frontend/dist>
         Options -Indexes +FollowSymLinks

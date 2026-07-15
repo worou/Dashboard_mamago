@@ -66,6 +66,10 @@ rm -rf "$DOCROOT/api"
 cp -r "$SRC/api" "$DOCROOT/api"
 rm -rf "$DOCROOT/api/database"
 
+# Documentation Swagger (statique : index.html + openapi.yaml)
+rm -rf "$DOCROOT/swagger"
+cp -r "$SRC/swagger" "$DOCROOT/swagger"
+
 # .htaccess de l'API : base sur /api
 sed -i 's#RewriteBase /mamago/api/#RewriteBase /api/#' "$DOCROOT/api/.htaccess"
 
@@ -128,6 +132,7 @@ cat <<DONE
 
  Verifs utiles :
    - $SERVER_URL/api/health    doit repondre {"success":true,...}
+   - $SERVER_URL/swagger/      documentation Swagger (choisir le serveur /api)
    - PHP 8.0+ requis (a selectionner dans le panneau si besoin)
    - Changer les mots de passe de demo une fois connecte.
 =====================================================================
