@@ -212,6 +212,52 @@ CREATE TABLE utilisateur_pays (
         REFERENCES pays(id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Portefeuille d'un COMMERCIAL : la ou les ville(s) qui lui sont attribuees.
+-- Selectionner une ville implique tous ses services (restaurant, shopping, ...).
+CREATE TABLE utilisateur_ville (
+    utilisateur_id  BIGINT UNSIGNED NOT NULL,
+    ville_id        BIGINT UNSIGNED NOT NULL,
+    PRIMARY KEY (utilisateur_id, ville_id),
+    CONSTRAINT fk_uv_utilisateur FOREIGN KEY (utilisateur_id)
+        REFERENCES utilisateurs(id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_uv_ville FOREIGN KEY (ville_id)
+        REFERENCES villes(id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Demandes de creation de compte COMMERCIAL :
+-- un Admin Pays soumet la demande, un SuperAdmin valide ou refuse.
+-- Le compte n'est cree qu'a la validation.
+CREATE TABLE demandes_comptes (
+    id                  BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    demandeur_id        BIGINT UNSIGNED NOT NULL,          -- l'Admin Pays
+    pays_id             BIGINT UNSIGNED NOT NULL,
+    ville_id            BIGINT UNSIGNED NOT NULL,          -- portefeuille demande
+    nom                 VARCHAR(100)    NOT NULL,
+    prenom              VARCHAR(100)    NOT NULL,
+    email               VARCHAR(150)    NOT NULL,
+    telephone           VARCHAR(20)     NULL,
+    mot_de_passe_hash   VARCHAR(255)    NOT NULL,          -- conserve jusqu'a validation
+    statut              ENUM('en_attente','validee','refusee') NOT NULL DEFAULT 'en_attente',
+    motif_refus         VARCHAR(255)    NULL,
+    valideur_id         BIGINT UNSIGNED NULL,              -- le SuperAdmin qui a tranche
+    utilisateur_id      BIGINT UNSIGNED NULL,              -- compte cree apres validation
+    date_traitement     DATETIME        NULL,
+    created_at          DATETIME        NULL,
+    updated_at          DATETIME        NULL,
+    CONSTRAINT fk_dc_demandeur FOREIGN KEY (demandeur_id)
+        REFERENCES utilisateurs(id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_dc_pays FOREIGN KEY (pays_id)
+        REFERENCES pays(id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_dc_ville FOREIGN KEY (ville_id)
+        REFERENCES villes(id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_dc_valideur FOREIGN KEY (valideur_id)
+        REFERENCES utilisateurs(id) ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_dc_utilisateur FOREIGN KEY (utilisateur_id)
+        REFERENCES utilisateurs(id) ON DELETE SET NULL ON UPDATE CASCADE,
+    KEY idx_dc_statut (statut),
+    KEY idx_dc_pays (pays_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- ---------------------------------------------------------------------
 -- 4. TRACABILITE / RAPPORTS
 -- ---------------------------------------------------------------------

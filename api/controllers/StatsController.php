@@ -17,6 +17,7 @@ class StatsController
         $p = Period::fromRequest($req);
 
         Auth::requirePaysAccess($req, $paysId);
+        $this->vs = Auth::villeScopeSql($req, 'v.id');   // Commercial : son portefeuille
 
         $pays = (new Model('pays', casts: ['id' => 'int', 'ca_global' => 'float']))->find($paysId);
         if (!$pays) {
@@ -35,12 +36,16 @@ class StatsController
         ]);
     }
 
+    // Perimetre ville du Commercial (vide pour les autres roles)
+    private string $vs = '';
+
     private function caTotal(int $paysId, Period $p): float
     {
+        $vs = $this->vs;
         $stmt = Database::pdo()->prepare(
             "SELECT COALESCE(SUM(co.montant),0)
              FROM courses co JOIN villes v ON v.id = co.ville_id
-             WHERE v.pays_id = ? AND co.statut='terminee' AND co.date_course BETWEEN ? AND ?"
+             WHERE v.pays_id = ? AND co.statut='terminee' AND co.date_course BETWEEN ? AND ? $vs"
         );
         $stmt->execute([$paysId, $p->from, $p->to]);
         return round((float) $stmt->fetchColumn(), 2);
@@ -48,6 +53,7 @@ class StatsController
 
     private function caParVille(int $paysId, Period $p): array
     {
+        $vs = $this->vs;
         $stmt = Database::pdo()->prepare(
             "SELECT v.id AS ville_id, v.nom_ville,
                     COALESCE(SUM(co.montant),0) AS ca,
@@ -56,7 +62,7 @@ class StatsController
              LEFT JOIN courses co
                     ON co.ville_id = v.id AND co.statut='terminee'
                    AND co.date_course BETWEEN ? AND ?
-             WHERE v.pays_id = ?
+             WHERE v.pays_id = ? $vs
              GROUP BY v.id, v.nom_ville
              ORDER BY ca DESC"
         );
@@ -71,6 +77,7 @@ class StatsController
 
     private function caParService(int $paysId, Period $p): array
     {
+        $vs = $this->vs;
         $stmt = Database::pdo()->prepare(
             "SELECT s.id AS service_id, s.nom_service,
                     COALESCE(SUM(co.montant),0) AS ca,
@@ -79,7 +86,7 @@ class StatsController
              LEFT JOIN courses co
                     ON co.service_id = s.id AND co.statut='terminee'
                    AND co.date_course BETWEEN ? AND ?
-                   AND co.ville_id IN (SELECT id FROM villes WHERE pays_id = ?)
+                   AND co.ville_id IN (SELECT v.id FROM villes v WHERE v.pays_id = ? $vs)
              GROUP BY s.id, s.nom_service
              HAVING nb_courses > 0 OR ca > 0
              ORDER BY ca DESC"
@@ -101,10 +108,11 @@ class StatsController
         $pdo = Database::pdo();
 
         // Nouveaux clients par mois
+        $vs = $this->vs;
         $nv = $pdo->prepare(
             "SELECT DATE_FORMAT(c.date_inscription,'%Y-%m') AS mois, COUNT(*) AS n
              FROM clients c JOIN villes v ON v.id = c.ville_id
-             WHERE v.pays_id = ?
+             WHERE v.pays_id = ? $vs
              GROUP BY mois"
         );
         $nv->execute([$paysId]);
@@ -117,7 +125,7 @@ class StatsController
                     COUNT(DISTINCT co.client_id) AS clients_actifs,
                     ROUND(AVG(co.duree_minutes),1) AS duree_moy
              FROM courses co JOIN villes v ON v.id = co.ville_id
-             WHERE v.pays_id = ? AND co.statut='terminee'
+             WHERE v.pays_id = ? AND co.statut='terminee' $vs
              GROUP BY mois"
         );
         $ac->execute([$paysId]);
@@ -140,6 +148,7 @@ class StatsController
 
     private function typePaiement(int $paysId, Period $p): array
     {
+        $vs = $this->vs;
         $stmt = Database::pdo()->prepare(
             "SELECT pa.type_paiement AS type,
                     COALESCE(SUM(pa.montant),0) AS montant,
@@ -148,7 +157,7 @@ class StatsController
              JOIN courses co ON co.id = pa.course_id
              JOIN villes v   ON v.id = co.ville_id
              WHERE v.pays_id = ? AND pa.statut='valide'
-               AND pa.date_paiement BETWEEN ? AND ?
+               AND pa.date_paiement BETWEEN ? AND ? $vs
              GROUP BY pa.type_paiement
              ORDER BY montant DESC"
         );
@@ -166,6 +175,7 @@ class StatsController
 
     private function livreurs(int $paysId, Period $p): array
     {
+        $vs = $this->vs;
         $stmt = Database::pdo()->prepare(
             "SELECT l.id, l.nom, l.prenom, l.note_moyenne, l.statut,
                     COALESCE(cur.nb, 0)  AS nb_courses,
@@ -182,7 +192,7 @@ class StatsController
                 FROM courses WHERE statut='terminee' AND date_course BETWEEN ? AND ?
                 GROUP BY livreur_id
              ) prev ON prev.livreur_id = l.id
-             WHERE l.ville_id IN (SELECT id FROM villes WHERE pays_id = ?)
+             WHERE l.ville_id IN (SELECT v.id FROM villes v WHERE v.pays_id = ? $vs)
              ORDER BY nb_courses DESC, l.note_moyenne DESC"
         );
         $stmt->execute([$p->from, $p->to, $p->prevFrom, $p->prevTo, $paysId]);
@@ -210,7 +220,7 @@ class StatsController
         $labels = Period::lastMonths($months);
         $start  = $labels[0] . '-01 00:00:00';
         $pdo = Database::pdo();
-        $sc  = Auth::paysScopeSql($req, 'v.pays_id');
+        $sc  = Auth::paysScopeSql($req, 'v.pays_id') . Auth::villeScopeSql($req, 'v.id');
 
         // Serie globale (dans le perimetre de l'utilisateur)
         $g = $pdo->prepare(
@@ -251,7 +261,7 @@ class StatsController
     {
         $p       = Period::fromRequest($req);
         $paysId  = $req->queryParam('pays_id');
-        $scope   = Auth::paysScopeSql($req, 'v.pays_id');
+        $scope   = Auth::paysScopeSql($req, 'v.pays_id') . Auth::villeScopeSql($req, 'v.id');
         $sql = "SELECT pa.type_paiement AS type,
                        COALESCE(SUM(pa.montant),0) AS montant, COUNT(*) AS nb
                 FROM paiements pa

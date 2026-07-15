@@ -19,8 +19,8 @@ echo "Nettoyage des tables...\n";
 $pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
 foreach ([
     'paiements','courses','connexions','rapports','stats_ca_ville_service',
-    'utilisateur_pays','role_droit_acces','clients','livreurs','villes',
-    'services','pays','utilisateurs','droits_acces','roles',
+    'demandes_comptes','utilisateur_ville','utilisateur_pays','role_droit_acces',
+    'clients','livreurs','villes','services','pays','utilisateurs','droits_acces','roles',
 ] as $t) {
     $pdo->exec("TRUNCATE TABLE `$t`");
 }
@@ -233,12 +233,14 @@ $pdo->exec(
 // --- Utilisateurs ---
 echo "Utilisateurs...\n";
 $hash = password_hash('password', PASSWORD_DEFAULT);
+// [role, nom, prenom, email, tel, pays geres, portefeuille (villes) pour un Commercial]
 $usersDef = [
-    ['SuperAdmin', 'Admin',   'Super',  'admin@mamago.com',      '+225 07 00 00 00 01', ['Cote d\'Ivoire','Senegal','France']],
-    ['Admin Pays', 'Kouassi', 'Aya',    'ci.admin@mamago.com',   '+225 07 45 12 88 30', ['Cote d\'Ivoire']],
-    ['Commercial', 'Ndiaye',  'Moussa', 'commercial@mamago.com', '+221 77 512 44 09',   ['Senegal']],
+    ['SuperAdmin', 'Admin',   'Super',  'admin@mamago.com',      '+225 07 00 00 00 01', ['Cote d\'Ivoire','Senegal','France'], []],
+    ['Admin Pays', 'Kouassi', 'Aya',    'ci.admin@mamago.com',   '+225 07 45 12 88 30', ['Cote d\'Ivoire'], []],
+    // Commercial : son perimetre est sa VILLE (portefeuille), pas le pays.
+    ['Commercial', 'Ndiaye',  'Moussa', 'commercial@mamago.com', '+221 77 512 44 09',   ['Senegal'], ['Dakar']],
 ];
-foreach ($usersDef as [$role, $no, $pr, $email, $tel, $paysNoms]) {
+foreach ($usersDef as [$role, $no, $pr, $email, $tel, $paysNoms, $villeNoms]) {
     $st = $pdo->prepare(
         'INSERT INTO utilisateurs (role_id, nom, prenom, email, telephone, mot_de_passe_hash, theme_pref, couleur_pref, actif, created_at, updated_at)
          VALUES (?,?,?,?,?,?,?,?,1,?,?)'
@@ -248,6 +250,15 @@ foreach ($usersDef as [$role, $no, $pr, $email, $tel, $paysNoms]) {
     foreach ($paysNoms as $pn) {
         $pdo->prepare('INSERT INTO utilisateur_pays (utilisateur_id, pays_id) VALUES (?,?)')
             ->execute([$uid, $paysIds[$pn]]);
+    }
+    // Portefeuille du commercial : la ville (tous ses services sont inclus)
+    foreach ($villeNoms as $vn) {
+        $vst = $pdo->prepare('SELECT id FROM villes WHERE nom_ville = ? LIMIT 1');
+        $vst->execute([$vn]);
+        if ($vid = $vst->fetchColumn()) {
+            $pdo->prepare('INSERT INTO utilisateur_ville (utilisateur_id, ville_id) VALUES (?,?)')
+                ->execute([$uid, (int) $vid]);
+        }
     }
     // Quelques connexions
     for ($k = 0; $k < 5; $k++) {

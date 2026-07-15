@@ -47,7 +47,8 @@ class ClientsController
             $where[] = '(c.nom LIKE ? OR c.prenom LIKE ? OR c.email LIKE ? OR c.telephone LIKE ?)';
             array_push($params, "%$q%", "%$q%", "%$q%", "%$q%");
         }
-        $scopeSql = Auth::paysScopeSql($req, 'v.pays_id');
+        // Cloisonnement : pays (Admin Pays) + ville (portefeuille du Commercial)
+        $scopeSql = Auth::paysScopeSql($req, 'v.pays_id') . Auth::villeScopeSql($req, 'c.ville_id');
         $whereSql = ' WHERE 1 = 1' . $scopeSql . ($where ? ' AND ' . implode(' AND ', $where) : '');
 
         $page    = max(1, (int) $req->queryParam('page', 1));

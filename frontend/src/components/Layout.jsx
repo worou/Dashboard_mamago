@@ -5,13 +5,13 @@ import { useTheme } from '../context/ThemeContext';
 import { ICONS, html, icHtml, initials } from '../lib/ui';
 import { IconSpan } from './common';
 
-// superAdminOnly : masque l'entree pour les autres roles (l'API renverrait 403).
+// adminOnly : reserve au SuperAdmin et a l'Admin Pays (un Commercial aurait un 403).
 const NAV = [
   { id: 'home', path: '/', label: 'Dashboard', short: 'Home', icon: ICONS.home },
   { id: 'pays', path: '/pays', label: 'Pays', short: 'Pays', icon: ICONS.pays },
   { id: 'interface', path: '/interface', label: 'Interface pays', short: 'Interface', icon: ICONS.layout },
   { id: 'stat', path: '/stats', label: 'Stat par pays', short: 'Stats', icon: ICONS.stat },
-  { id: 'users', path: '/utilisateurs', label: 'Utilisateurs', short: 'Users', icon: ICONS.users, superAdminOnly: true },
+  { id: 'users', path: '/utilisateurs', label: 'Utilisateurs', short: 'Users', icon: ICONS.users, adminOnly: true },
   { id: 'settings', path: '/parametres', label: 'Paramètres', short: 'Réglages', icon: ICONS.settings },
 ];
 
@@ -39,7 +39,8 @@ export default function Layout() {
   const [notifOpen, setNotifOpen] = useState(false);
 
   const isSuperAdmin = user?.role === 'SuperAdmin';
-  const navItems = NAV.filter((n) => !n.superAdminOnly || isSuperAdmin);
+  const isAdmin = isSuperAdmin || user?.role === 'Admin Pays';
+  const navItems = NAV.filter((n) => !n.adminOnly || isAdmin);
 
   const activeId = (() => {
     if (loc.pathname === '/') return 'home';

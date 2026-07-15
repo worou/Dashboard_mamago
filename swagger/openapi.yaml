@@ -14,16 +14,22 @@ info:
     le perimetre de l'utilisateur en est deduit cote serveur.
 
 
-    **Cloisonnement par pays** (applique cote API) :
+    **Gestion des roles** (cloisonnement applique cote API) :
 
-    - `SuperAdmin` : acces total, seul habilite a creer un pays, gerer les
-      utilisateurs, roles et droits.
+    - `SuperAdmin` : **acces global** a la plateforme. Seul habilite a creer
+      un pays, valider les demandes de compte, gerer roles et droits.
 
-    - `Admin Pays` : lecture **et ecriture** limitees aux pays de son
-      perimetre (table `utilisateur_pays`). Toute requete hors perimetre
-      renvoie **403**.
+    - `Admin Pays` : acces **limite au pays qui lui est attribue**
+      (table `utilisateur_pays`). Il consulte les donnees, suit les
+      performances et accede aux rapports de son perimetre. Il **cree les
+      comptes commerciaux de son pays via une demande** soumise au
+      SuperAdmin pour validation (`POST /demandes`) ; une fois valides, il
+      les modifie et les desactive directement. Hors perimetre : **403**.
 
-    - `Commercial` : **lecture seule** sur les pays de son perimetre.
+    - `Commercial` : acces **limite a son portefeuille**. Le portefeuille est
+      une **ville** (table `utilisateur_ville`) : la selectionner inclut
+      d'office **tous ses services** (restaurant, shopping, ...). Il est en
+      **lecture seule** — toute ecriture renvoie **403**.
 
 
     **Interface admin par pays** : `POST /pays` avec `creer_admin: true`
@@ -515,6 +521,81 @@ paths:
     get: { tags: [Paiements], summary: Detail paiement, responses: { "200": { description: OK } } }
     put: { tags: [Paiements], summary: Modifier paiement, responses: { "200": { description: OK } } }
     delete: { tags: [Paiements], summary: Supprimer paiement, responses: { "204": { description: Supprime } } }
+
+  /demandes:
+    get:
+      tags: [Administration]
+      summary: Demandes de creation de compte commercial
+      description: >
+        Un SuperAdmin voit toutes les demandes ; un Admin Pays ne voit que
+        les siennes. Un Commercial n'a pas acces (403).
+      parameters:
+        - name: statut
+          in: query
+          schema: { type: string, enum: [en_attente, validee, refusee] }
+      responses:
+        "200": { description: Liste des demandes }
+        "403": { $ref: "#/components/responses/Error" }
+    post:
+      tags: [Administration]
+      summary: Soumettre une demande de compte commercial (Admin Pays)
+      description: >
+        Le compte **n'est pas cree** : la demande part en validation chez le
+        SuperAdmin. La ville doit appartenir au perimetre du demandeur ; elle
+        constitue le portefeuille du futur commercial (tous services inclus).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nom, prenom, email, mot_de_passe, ville_id]
+              properties:
+                nom: { type: string }
+                prenom: { type: string }
+                email: { type: string }
+                telephone: { type: string, nullable: true }
+                mot_de_passe: { type: string }
+                ville_id: { type: integer, description: Portefeuille demande }
+      responses:
+        "201": { description: Demande enregistree (statut en_attente) }
+        "403": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /demandes/{id}/valider:
+    parameters: [{ $ref: "#/components/parameters/id" }]
+    put:
+      tags: [Administration]
+      summary: Valider une demande (SuperAdmin)
+      description: >
+        Cree le compte `Commercial`, lui attribue son portefeuille (ville) et
+        clot la demande. Operation transactionnelle.
+      responses:
+        "200": { description: Compte cree }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /demandes/{id}/refuser:
+    parameters: [{ $ref: "#/components/parameters/id" }]
+    put:
+      tags: [Administration]
+      summary: Refuser une demande (SuperAdmin)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: { motif: { type: string } }
+      responses:
+        "200": { description: Demande refusee — aucun compte cree }
+        "403": { $ref: "#/components/responses/Error" }
+  /demandes/{id}:
+    parameters: [{ $ref: "#/components/parameters/id" }]
+    delete:
+      tags: [Administration]
+      summary: Annuler sa demande en attente (Admin Pays)
+      responses:
+        "204": { description: Demande annulee }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
 
   /utilisateurs:
     get:

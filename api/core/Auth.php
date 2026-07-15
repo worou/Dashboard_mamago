@@ -99,7 +99,12 @@ class Auth
 
     /**
      * Contexte de l'utilisateur connecte :
-     *   ['id', 'email', 'role', 'pays_ids' => int[]]
+     *   ['id', 'email', 'role', 'pays_ids' => int[], 'ville_ids' => int[]]
+     *
+     * Perimetres :
+     *   SuperAdmin  -> tout
+     *   Admin Pays  -> ses pays          (utilisateur_pays)
+     *   Commercial  -> ses villes        (utilisateur_ville = son portefeuille)
      */
     public static function context(Request $request): array
     {
@@ -107,8 +112,9 @@ class Auth
             return self::$ctx;
         }
         $payload = self::requireAuth($request);
+        $pdo = Database::pdo();
 
-        $stmt = Database::pdo()->prepare(
+        $stmt = $pdo->prepare(
             'SELECT u.id, u.email, r.libelle_role AS role
              FROM utilisateurs u JOIN roles r ON r.id = u.role_id
              WHERE u.id = ? AND u.actif = 1 LIMIT 1'
@@ -119,14 +125,27 @@ class Auth
             Response::error('Compte introuvable ou desactive.', 401);
         }
 
-        $ps = Database::pdo()->prepare('SELECT pays_id FROM utilisateur_pays WHERE utilisateur_id = ?');
+        $ps = $pdo->prepare('SELECT pays_id FROM utilisateur_pays WHERE utilisateur_id = ?');
         $ps->execute([$user['id']]);
+        $paysIds = array_map('intval', $ps->fetchAll(PDO::FETCH_COLUMN));
+
+        $vs = $pdo->prepare('SELECT ville_id FROM utilisateur_ville WHERE utilisateur_id = ?');
+        $vs->execute([$user['id']]);
+        $villeIds = array_map('intval', $vs->fetchAll(PDO::FETCH_COLUMN));
+
+        // Pour un Commercial, le pays decoule de son portefeuille de villes.
+        if ($user['role'] === 'Commercial' && $villeIds) {
+            $in = implode(',', $villeIds);
+            $dp = $pdo->query("SELECT DISTINCT pays_id FROM villes WHERE id IN ($in)");
+            $paysIds = array_map('intval', $dp->fetchAll(PDO::FETCH_COLUMN));
+        }
 
         self::$ctx = [
-            'id'       => (int) $user['id'],
-            'email'    => $user['email'],
-            'role'     => $user['role'],
-            'pays_ids' => array_map('intval', $ps->fetchAll(PDO::FETCH_COLUMN)),
+            'id'        => (int) $user['id'],
+            'email'     => $user['email'],
+            'role'      => $user['role'],
+            'pays_ids'  => $paysIds,
+            'ville_ids' => $villeIds,
         ];
         return self::$ctx;
     }
@@ -177,7 +196,7 @@ class Auth
 
     /**
      * Fragment SQL de restriction sur une colonne pays.
-     * Retourne ['sql' => ' AND v.pays_id IN (1,2)', 'params' => []] ou sql vide.
+     * Vide pour un SuperAdmin ; " AND col IN (...)" sinon.
      */
     public static function paysScopeSql(Request $request, string $column): string
     {
@@ -186,9 +205,63 @@ class Auth
             return '';
         }
         if (empty($scope)) {
-            return " AND 1 = 0"; // aucun pays attribue => aucun resultat
+            return ' AND 1 = 0'; // aucun pays attribue => aucun resultat
         }
         $ids = implode(',', array_map('intval', $scope));
         return " AND $column IN ($ids)";
+    }
+
+    // =================================================================
+    // PORTEFEUILLE (VILLES) — specifique au role Commercial
+    // =================================================================
+
+    /**
+     * Portefeuille de villes.
+     * null  = aucune restriction de ville (SuperAdmin, Admin Pays)
+     * int[] = villes du Commercial (peut etre vide)
+     */
+    public static function scopedVilleIds(Request $request): ?array
+    {
+        $ctx = self::context($request);
+        return $ctx['role'] === 'Commercial' ? $ctx['ville_ids'] : null;
+    }
+
+    /**
+     * Fragment SQL de restriction sur une colonne ville.
+     * Ne s'applique qu'au Commercial : son perimetre est sa ville, et
+     * selectionner une ville inclut d'office tous ses services.
+     */
+    public static function villeScopeSql(Request $request, string $column): string
+    {
+        $scope = self::scopedVilleIds($request);
+        if ($scope === null) {
+            return '';
+        }
+        if (empty($scope)) {
+            return ' AND 1 = 0'; // portefeuille vide => aucun resultat
+        }
+        $ids = implode(',', array_map('intval', $scope));
+        return " AND $column IN ($ids)";
+    }
+
+    // Exige que la ville soit dans le portefeuille (403 sinon).
+    public static function requireVilleAccess(Request $request, int $villeId): void
+    {
+        $scope = self::scopedVilleIds($request);
+        if ($scope === null) {
+            return; // pas de restriction de ville pour ce role
+        }
+        if (!in_array($villeId, $scope, true)) {
+            Response::error('Acces refuse : cette ville est hors de votre portefeuille.', 403);
+        }
+    }
+
+    // Reserve au SuperAdmin ou a un Admin Pays (gestion des commerciaux).
+    public static function requireAdmin(Request $request): void
+    {
+        $role = self::context($request)['role'];
+        if ($role !== 'SuperAdmin' && $role !== 'Admin Pays') {
+            Response::error('Acces refuse : action reservee aux administrateurs.', 403);
+        }
     }
 }

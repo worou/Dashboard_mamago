@@ -49,7 +49,7 @@ class CoursesController
         if ($st = $req->queryParam('statut'))    { $where[] = 'co.statut = ?';     $params[] = $st; }
         if ($f = $req->queryParam('from'))       { $where[] = 'co.date_course >= ?'; $params[] = $f . ' 00:00:00'; }
         if ($t = $req->queryParam('to'))         { $where[] = 'co.date_course <= ?'; $params[] = $t . ' 23:59:59'; }
-        $scopeSql = Auth::paysScopeSql($req, 'v.pays_id');
+        $scopeSql = Auth::paysScopeSql($req, 'v.pays_id') . Auth::villeScopeSql($req, 'co.ville_id');
         $whereSql = ' WHERE 1 = 1' . $scopeSql . ($where ? ' AND ' . implode(' AND ', $where) : '');
 
         $page    = max(1, (int) $req->queryParam('page', 1));

@@ -26,7 +26,7 @@ class PaiementsController
         }
         if ($f = $req->queryParam('from'))    { $where[] = 'pa.date_paiement >= ?'; $params[] = $f . ' 00:00:00'; }
         if ($to = $req->queryParam('to'))     { $where[] = 'pa.date_paiement <= ?'; $params[] = $to . ' 23:59:59'; }
-        $scopeSql = Auth::paysScopeSql($req, 'v.pays_id');
+        $scopeSql = Auth::paysScopeSql($req, 'v.pays_id') . Auth::villeScopeSql($req, 'co.ville_id');
         $whereSql = ' WHERE 1 = 1' . $scopeSql . ($where ? ' AND ' . implode(' AND ', $where) : '');
 
         $page    = max(1, (int) $req->queryParam('page', 1));

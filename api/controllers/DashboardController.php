@@ -11,9 +11,11 @@ class DashboardController
         $pdo = Database::pdo();
         $p   = Period::fromRequest($req);
 
-        // Cloisonnement : un Admin Pays ne voit que ses pays.
-        $sc = Auth::paysScopeSql($req, 'v.pays_id');   // pour les requetes jointes a villes
+        // Cloisonnement : un Admin Pays ne voit que ses pays ;
+        // un Commercial ne voit que les villes de son portefeuille.
+        $sc = Auth::paysScopeSql($req, 'v.pays_id') . Auth::villeScopeSql($req, 'v.id');
         $sp = Auth::paysScopeSql($req, 'p.id');        // pour la table pays
+        $vs = Auth::villeScopeSql($req, 'v.id');       // portefeuille du Commercial
 
         // --- Indicateurs (sur la periode, dans le perimetre) ---
         $caGlobal = (float) $this->scalar(
@@ -53,20 +55,20 @@ class DashboardController
                 COALESCE(cur.ca, 0)        AS ca,
                 COALESCE(cur.nb_courses,0) AS nb_courses,
                 COALESCE(prev.ca, 0)       AS ca_precedent,
-                (SELECT COUNT(*) FROM clients c JOIN villes v ON v.id=c.ville_id WHERE v.pays_id=p.id) AS nb_clients,
-                (SELECT COUNT(*) FROM villes v WHERE v.pays_id=p.id) AS nb_villes,
-                (SELECT COUNT(*) FROM livreurs l JOIN villes v ON v.id=l.ville_id WHERE v.pays_id=p.id) AS nb_livreurs
+                (SELECT COUNT(*) FROM clients c JOIN villes v ON v.id=c.ville_id WHERE v.pays_id=p.id $vs) AS nb_clients,
+                (SELECT COUNT(*) FROM villes v WHERE v.pays_id=p.id $vs) AS nb_villes,
+                (SELECT COUNT(*) FROM livreurs l JOIN villes v ON v.id=l.ville_id WHERE v.pays_id=p.id $vs) AS nb_livreurs
              FROM pays p
              LEFT JOIN (
                 SELECT v.pays_id, SUM(co.montant) ca, COUNT(*) nb_courses
                 FROM courses co JOIN villes v ON v.id = co.ville_id
-                WHERE co.statut='terminee' AND co.date_course BETWEEN ? AND ?
+                WHERE co.statut='terminee' AND co.date_course BETWEEN ? AND ? $vs
                 GROUP BY v.pays_id
              ) cur  ON cur.pays_id  = p.id
              LEFT JOIN (
                 SELECT v.pays_id, SUM(co.montant) ca
                 FROM courses co JOIN villes v ON v.id = co.ville_id
-                WHERE co.statut='terminee' AND co.date_course BETWEEN ? AND ?
+                WHERE co.statut='terminee' AND co.date_course BETWEEN ? AND ? $vs
                 GROUP BY v.pays_id
              ) prev ON prev.pays_id = p.id
              WHERE 1 = 1 $sp

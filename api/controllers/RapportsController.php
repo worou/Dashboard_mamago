@@ -52,7 +52,8 @@ class RapportsController
             Response::error('Pays introuvable.', 404);
         }
 
-        // Lignes de courses de la periode
+        // Lignes de courses de la periode (limitees au portefeuille pour un Commercial)
+        $vs = Auth::villeScopeSql($req, 'v.id');
         $stmt = Database::pdo()->prepare(
             "SELECT co.id, co.date_course, v.nom_ville, s.nom_service,
                     CONCAT(cl.prenom,' ',cl.nom) AS client,
@@ -63,7 +64,7 @@ class RapportsController
              JOIN services s  ON s.id = co.service_id
              JOIN clients cl  ON cl.id = co.client_id
              LEFT JOIN livreurs li ON li.id = co.livreur_id
-             WHERE v.pays_id = ? AND co.date_course BETWEEN ? AND ?
+             WHERE v.pays_id = ? AND co.date_course BETWEEN ? AND ? $vs
              ORDER BY co.date_course DESC"
         );
         $stmt->execute([$paysId, $p->from, $p->to]);

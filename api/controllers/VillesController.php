@@ -29,6 +29,7 @@ class VillesController
             $params[] = $p;
         }
         $scopeSql = Auth::paysScopeSql($req, 'v.pays_id');
+        $villeSql = Auth::villeScopeSql($req, 'v.id');   // Commercial : sa ville uniquement
         $whereSql = $where ? ' AND ' . implode(' AND ', $where) : '';
 
         $stmt = Database::pdo()->prepare(
@@ -36,7 +37,7 @@ class VillesController
                     (SELECT COUNT(*) FROM clients c  WHERE c.ville_id  = v.id) AS nb_clients,
                     (SELECT COUNT(*) FROM livreurs l WHERE l.ville_id  = v.id) AS nb_livreurs
              FROM villes v JOIN pays p ON p.id = v.pays_id
-             WHERE 1 = 1 $scopeSql $whereSql
+             WHERE 1 = 1 $scopeSql $villeSql $whereSql
              ORDER BY v.nom_ville ASC"
         );
         $stmt->execute($params);

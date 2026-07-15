@@ -22,6 +22,7 @@ foreach ([
     'controllers/CoursesController.php', 'controllers/PaiementsController.php',
     'controllers/UtilisateursController.php', 'controllers/RolesController.php',
     'controllers/ConnexionsController.php', 'controllers/RapportsController.php',
+    'controllers/DemandesController.php',
 ] as $file) {
     require __DIR__ . '/' . $file;
 }
@@ -181,6 +182,14 @@ $router->get('/droits-acces/{id}',    $su(fn ($r, $p) => $droits->show($r, $p)))
 $router->post('/droits-acces',        $su(fn ($r) => $droits->store($r)));
 $router->put('/droits-acces/{id}',    $su(fn ($r, $p) => $droits->update($r, $p)));
 $router->delete('/droits-acces/{id}', $su(fn ($r, $p) => $droits->destroy($r, $p)));
+
+// --- Demandes de compte commercial (Admin Pays -> validation SuperAdmin) ---
+$demandes = new DemandesController();
+$router->get('/demandes',               fn ($r) => $demandes->index($r));
+$router->post('/demandes',              fn ($r) => $demandes->store($r));
+$router->put('/demandes/{id}/valider',  fn ($r, $p) => $demandes->valider($r, $p));
+$router->put('/demandes/{id}/refuser',  fn ($r, $p) => $demandes->refuser($r, $p));
+$router->delete('/demandes/{id}',       fn ($r, $p) => $demandes->destroy($r, $p));
 
 $users = new UtilisateursController();
 $router->get('/utilisateurs',         fn ($r) => $users->index($r));

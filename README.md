@@ -48,13 +48,35 @@ curl -X POST http://localhost/mamago/api/auth/login \
 **Toutes les routes** (sauf `/health` et `/auth/login`) exigent l'en-tête
 `Authorization: Bearer <token>`. Le **périmètre** de l'utilisateur en est
 déduit côté serveur — le cloisonnement est appliqué par l'**API**, pas
-seulement par l'interface :
+seulement par l'interface.
+
+## Gestion des rôles
 
 | Rôle | Portée |
 |------|--------|
-| **SuperAdmin** | Accès total. Seul habilité à créer un pays et à gérer utilisateurs / rôles / droits. |
-| **Admin Pays** | Lecture **et écriture** limitées à ses pays (table `utilisateur_pays`). Hors périmètre → **403**. |
-| **Commercial** | **Lecture seule** sur ses pays. Toute écriture → **403**. |
+| **SuperAdmin** | **Accès global** à la plateforme. Seul habilité à créer un pays, valider les demandes de compte, gérer rôles et droits. |
+| **Admin Pays** | Accès **limité au pays qui lui est attribué** (`utilisateur_pays`). Consulte les données, suit les performances, accède aux rapports de son périmètre. Crée les comptes commerciaux de son pays **via une demande soumise au SuperAdmin** ; une fois validés, il les modifie et les désactive directement. Hors périmètre → **403**. |
+| **Commercial** | Accès **limité à son portefeuille** = une **ville** (`utilisateur_ville`). Sélectionner une ville inclut **tous ses services** (restaurant, shopping…). **Lecture seule** — toute écriture → **403**. |
+
+### Workflow de validation d'un compte commercial
+
+L'Admin Pays ne crée pas le compte : il soumet une **demande**. Le compte
+n'existe **qu'après validation** par le SuperAdmin.
+
+```
+ADMIN PAYS                              SUPERADMIN
+──────────────────────────────────────────────────────────
+POST /demandes  ──────────────────────► statut « en_attente »
+(nom, email, mot de passe, ville)              │
+                                    PUT /demandes/{id}/valider
+                                    PUT /demandes/{id}/refuser
+                                               │
+                                     ▼ compte Commercial créé
+                                       + portefeuille (ville) attribué
+```
+
+Tant que la demande n'est pas validée, la connexion avec cet e-mail renvoie
+**401** — aucun compte n'existe en base.
 
 ## Interface admin par pays (générée dynamiquement)
 

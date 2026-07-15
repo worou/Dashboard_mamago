@@ -120,8 +120,18 @@ export const api = {
   },
   services: () => request('/services'),
 
-  // Administration (SuperAdmin)
+  // Demandes de compte commercial (Admin Pays -> validation SuperAdmin)
+  demandes: {
+    list: (params) => request('/demandes' + qs(params)),
+    create: (body) => request('/demandes', { method: 'POST', body }),
+    valider: (id) => request('/demandes/' + id + '/valider', { method: 'PUT', body: {} }),
+    refuser: (id, motif) => request('/demandes/' + id + '/refuser', { method: 'PUT', body: { motif } }),
+    remove: (id) => request('/demandes/' + id, { method: 'DELETE' }),
+  },
+
+  // Administration
   utilisateurs: (params) => request('/utilisateurs' + qs(params)),
+  utilisateurOne: (id) => request('/utilisateurs/' + id),   // inclut pays_ids / ville_ids
   createUtilisateur: (body) => request('/utilisateurs', { method: 'POST', body }),
   updateUtilisateur: (id, body) => request('/utilisateurs/' + id, { method: 'PUT', body }),
   deleteUtilisateur: (id) => request('/utilisateurs/' + id, { method: 'DELETE' }),

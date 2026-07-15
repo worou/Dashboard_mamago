@@ -14,13 +14,47 @@ class UtilisateursController
         return $u;
     }
 
+    /**
+     * Un SuperAdmin voit tous les comptes.
+     * Un Admin Pays ne voit que les COMMERCIAUX de ses pays (ceux qu'il gere).
+     * Un Commercial n'a pas acces a cette ressource.
+     */
+    private function assertPeutGerer(Request $req, ?array $cible = null): void
+    {
+        Auth::requireAdmin($req);   // 403 pour un Commercial
+        if (Auth::isSuperAdmin($req)) {
+            return;
+        }
+        if ($cible === null) {
+            return; // simple listing : filtre applique dans la requete
+        }
+        // Un Admin Pays ne gere que les commerciaux de ses pays.
+        if (($cible['role'] ?? null) !== 'Commercial') {
+            Response::error('Acces refuse : vous ne gerez que les comptes commerciaux.', 403);
+        }
+        $scope = Auth::scopedPaysIds($req) ?? [];
+        $paysDuCible = $this->paysIds($cible['id']);
+        if (!array_intersect($scope, $paysDuCible)) {
+            Response::error('Acces refuse : ce compte est hors de votre perimetre.', 403);
+        }
+    }
+
     public function index(Request $req): void
     {
-        Auth::requireSuperAdmin($req);
+        $this->assertPeutGerer($req);
+
         $sql    = 'SELECT u.*, r.libelle_role AS role FROM utilisateurs u
                    JOIN roles r ON r.id = u.role_id';
         $where  = [];
         $params = [];
+
+        // Admin Pays : uniquement les commerciaux rattaches a ses pays.
+        if (!Auth::isSuperAdmin($req)) {
+            $scope = Auth::scopedPaysIds($req) ?: [0];
+            $in = implode(',', array_map('intval', $scope));
+            $where[] = "r.libelle_role = 'Commercial'";
+            $where[] = "u.id IN (SELECT utilisateur_id FROM utilisateur_pays WHERE pays_id IN ($in))";
+        }
         if ($rid = $req->queryParam('role_id')) {
             $where[] = 'u.role_id = ?';
             $params[] = $rid;
@@ -36,20 +70,32 @@ class UtilisateursController
 
         $stmt = Database::pdo()->prepare($sql);
         $stmt->execute($params);
-        Response::ok(array_map([$this, 'publicUser'], $stmt->fetchAll()));
+
+        // On joint le portefeuille (villes) : c'est le perimetre d'un commercial.
+        Response::ok(array_map(function ($u) {
+            $data = $this->publicUser($u);
+            $data['villes'] = $this->villes($u['id']);
+            return $data;
+        }, $stmt->fetchAll()));
     }
 
     public function show(Request $req, array $params): void
     {
-        Auth::requireSuperAdmin($req);
-        $stmt = Database::pdo()->prepare('SELECT * FROM utilisateurs WHERE id = ?');
+        $stmt = Database::pdo()->prepare(
+            'SELECT u.*, r.libelle_role AS role FROM utilisateurs u
+             JOIN roles r ON r.id = u.role_id WHERE u.id = ?'
+        );
         $stmt->execute([$params['id']]);
         $u = $stmt->fetch();
         if (!$u) {
             Response::error('Utilisateur introuvable.', 404);
         }
+        $this->assertPeutGerer($req, ['id' => $u['id'], 'role' => $u['role']]);
+
         $data = $this->publicUser($u);
-        $data['pays_ids'] = $this->paysIds($u['id']);
+        $data['pays_ids']  = $this->paysIds($u['id']);
+        $data['ville_ids'] = array_column($this->villes($u['id']), 'id');
+        $data['villes']    = $this->villes($u['id']);
         Response::ok($data);
     }
 
@@ -88,20 +134,38 @@ class UtilisateursController
 
         $id = Database::pdo()->lastInsertId();
         $this->syncPays($id, $b['pays_ids'] ?? []);
+        $this->syncVilles($req, $id, $b['ville_ids'] ?? []);
         $this->returnUser($id, 201);
     }
 
+    /**
+     * Modification : un SuperAdmin modifie n'importe quel compte.
+     * Un Admin Pays modifie (et desactive) les commerciaux de son pays,
+     * sans validation — la validation ne porte que sur la CREATION.
+     * Il ne peut pas changer leur role.
+     */
     public function update(Request $req, array $params): void
     {
-        Auth::requireSuperAdmin($req);
         $id = $params['id'];
-        $stmt = Database::pdo()->prepare('SELECT * FROM utilisateurs WHERE id = ?');
+        $stmt = Database::pdo()->prepare(
+            'SELECT u.*, r.libelle_role AS role FROM utilisateurs u
+             JOIN roles r ON r.id = u.role_id WHERE u.id = ?'
+        );
         $stmt->execute([$id]);
-        if (!$stmt->fetch()) {
+        $cible = $stmt->fetch();
+        if (!$cible) {
             Response::error('Utilisateur introuvable.', 404);
         }
+        $this->assertPeutGerer($req, ['id' => $cible['id'], 'role' => $cible['role']]);
 
         $b = $req->body();
+
+        // Un Admin Pays ne peut pas changer le role d'un commercial.
+        if (!Auth::isSuperAdmin($req) && isset($b['role_id'])
+            && (int) $b['role_id'] !== (int) $cible['role_id']) {
+            Response::error('Acces refuse : vous ne pouvez pas changer le role de ce compte.', 403);
+        }
+
         $fields = [];
         $vals   = [];
         foreach (['role_id', 'nom', 'prenom', 'email', 'telephone', 'theme_pref', 'couleur_pref'] as $f) {
@@ -138,17 +202,26 @@ class UtilisateursController
         if (array_key_exists('pays_ids', $b)) {
             $this->syncPays($id, $b['pays_ids'] ?? []);
         }
+        // Portefeuille du commercial : ses villes (chaque ville inclut tous ses services)
+        if (array_key_exists('ville_ids', $b)) {
+            $this->syncVilles($req, $id, $b['ville_ids'] ?? []);
+        }
         $this->returnUser($id);
     }
 
     public function destroy(Request $req, array $params): void
     {
-        Auth::requireSuperAdmin($req);
-        $stmt = Database::pdo()->prepare('SELECT id FROM utilisateurs WHERE id = ?');
+        $stmt = Database::pdo()->prepare(
+            'SELECT u.id, r.libelle_role AS role FROM utilisateurs u
+             JOIN roles r ON r.id = u.role_id WHERE u.id = ?'
+        );
         $stmt->execute([$params['id']]);
-        if (!$stmt->fetch()) {
+        $cible = $stmt->fetch();
+        if (!$cible) {
             Response::error('Utilisateur introuvable.', 404);
         }
+        $this->assertPeutGerer($req, ['id' => $cible['id'], 'role' => $cible['role']]);
+
         Database::pdo()->prepare('DELETE FROM utilisateurs WHERE id = ?')->execute([$params['id']]);
         Response::noContent();
     }
@@ -158,6 +231,50 @@ class UtilisateursController
         $stmt = Database::pdo()->prepare('SELECT pays_id FROM utilisateur_pays WHERE utilisateur_id = ?');
         $stmt->execute([$userId]);
         return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+    }
+
+    // Portefeuille : les villes attribuees a l'utilisateur (avec leur pays).
+    private function villes($userId): array
+    {
+        $stmt = Database::pdo()->prepare(
+            'SELECT v.id, v.nom_ville, v.pays_id, p.nom_pays
+             FROM utilisateur_ville uv
+             JOIN villes v ON v.id = uv.ville_id
+             JOIN pays p   ON p.id = v.pays_id
+             WHERE uv.utilisateur_id = ?
+             ORDER BY v.nom_ville'
+        );
+        $stmt->execute([$userId]);
+        return array_map(fn ($v) => [
+            'id'        => (int) $v['id'],
+            'nom_ville' => $v['nom_ville'],
+            'pays_id'   => (int) $v['pays_id'],
+            'nom_pays'  => $v['nom_pays'],
+        ], $stmt->fetchAll());
+    }
+
+    // Remplace le portefeuille. Chaque ville doit etre dans le perimetre du demandeur.
+    private function syncVilles(Request $req, $userId, $villeIds): void
+    {
+        if (!is_array($villeIds)) {
+            return;
+        }
+        $pdo = Database::pdo();
+        foreach ($villeIds as $vid) {
+            $vs = $pdo->prepare('SELECT pays_id FROM villes WHERE id = ?');
+            $vs->execute([(int) $vid]);
+            $paysId = $vs->fetchColumn();
+            if ($paysId === false) {
+                Response::error('Ville invalide dans le portefeuille : ' . $vid, 422);
+            }
+            Auth::requirePaysAccess($req, (int) $paysId);
+        }
+
+        $pdo->prepare('DELETE FROM utilisateur_ville WHERE utilisateur_id = ?')->execute([$userId]);
+        $ins = $pdo->prepare('INSERT INTO utilisateur_ville (utilisateur_id, ville_id) VALUES (?, ?)');
+        foreach ($villeIds as $vid) {
+            $ins->execute([$userId, (int) $vid]);
+        }
     }
 
     private function syncPays($userId, $paysIds): void

@@ -42,7 +42,7 @@ class LivreursController
             $where[] = 'v.pays_id = ?';  $params[] = $p;
         }
         if ($s = $req->queryParam('statut'))   { $where[] = 'l.statut = ?';   $params[] = $s; }
-        $scopeSql = Auth::paysScopeSql($req, 'v.pays_id');
+        $scopeSql = Auth::paysScopeSql($req, 'v.pays_id') . Auth::villeScopeSql($req, 'l.ville_id');
         $whereSql = ' WHERE 1 = 1' . $scopeSql . ($where ? ' AND ' . implode(' AND ', $where) : '');
 
         $stmt = Database::pdo()->prepare(
